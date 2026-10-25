@@ -1,16 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Loader2, Printer, CheckSquare, Square, Search, Download } from 'lucide-react';
 import {
   api,
   DEFAULT_SPOOL_LABEL_FIELDS,
   SPOOL_LABEL_FIELDS,
+  type LabelSheetLayout,
+  type SavedLabelTemplate,
   type SpoolLabelField,
+  type SpoolLabelRequestTemplate,
   type SpoolLabelTemplate,
   type InventorySpool,
 } from '../api/client';
 import { Button } from './Button';
+import { ConfirmModal } from './ConfirmModal';
+import { LabelSheetDiagram, LabelSheetLayoutEditor } from './LabelSheetLayoutEditor';
+import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import {
+  DEFAULT_LAYOUT,
+  draftFromLayout,
+  isLayoutDraft,
+  layoutProblem,
+  parseDraft,
+  type LayoutDraft,
+} from '../utils/labelSheetLayout';
 import { getSwatchStyle, resolveSpoolColorName } from '../utils/colors';
 import { useColorCatalogVersion } from '../hooks/useColorCatalogVersion';
 
@@ -108,10 +123,32 @@ const FIELD_LABELS: Record<SpoolLabelField, { i18nKey: string; fallback: string 
 // setting would need settings access to save.
 const PREFS_STORAGE_KEY = 'bambuddy-label-print-options';
 
+// What the label size dropdown holds: a built-in template, a one-off custom
+// sheet, or a saved template by id (#3296).
+type TemplateChoice = SpoolLabelTemplate | 'custom' | `saved:${number}`;
+
+const SAVED_TEMPLATES_KEY = ['labelTemplates'];
+
+function savedChoice(id: number): TemplateChoice {
+  return `saved:${id}`;
+}
+
+function savedIdOf(choice: TemplateChoice): number | null {
+  return choice.startsWith('saved:') ? Number(choice.slice('saved:'.length)) : null;
+}
+
+function isTemplateChoice(value: unknown): value is TemplateChoice {
+  if (typeof value !== 'string') return false;
+  if (value === 'custom' || /^saved:[1-9]\d*$/.test(value)) return true;
+  return TEMPLATE_OPTIONS.some((o) => o.value === value);
+}
+
 interface LabelPrefs {
-  template: SpoolLabelTemplate;
+  template: TemplateChoice;
   /** Chosen lines per template: a 40 × 30 roll and an A4 sheet fit different amounts. */
-  fields: Partial<Record<SpoolLabelTemplate, SpoolLabelField[]>>;
+  fields: Partial<Record<TemplateChoice, SpoolLabelField[]>>;
+  /** The one-off custom sheet, as last typed. */
+  customDraft: LayoutDraft;
   monochrome: boolean;
   format: OutputFormat;
   dpi: PngDpi;
@@ -120,6 +157,7 @@ interface LabelPrefs {
 const DEFAULT_PREFS: LabelPrefs = {
   template: TEMPLATE_OPTIONS[0].value,
   fields: {},
+  customDraft: draftFromLayout(DEFAULT_LAYOUT),
   monochrome: false,
   format: 'pdf',
   dpi: 300,
@@ -134,21 +172,19 @@ function loadPrefs(): LabelPrefs {
   }
   if (!raw || typeof raw !== 'object') return DEFAULT_PREFS;
   const r = raw as Partial<Record<keyof LabelPrefs, unknown>>;
-  const templates = TEMPLATE_OPTIONS.map((o) => o.value);
   const fields: LabelPrefs['fields'] = {};
   if (r.fields && typeof r.fields === 'object') {
     for (const [tpl, list] of Object.entries(r.fields as Record<string, unknown>)) {
-      if (!templates.includes(tpl as SpoolLabelTemplate) || !Array.isArray(list)) continue;
-      fields[tpl as SpoolLabelTemplate] = list.filter((f): f is SpoolLabelField =>
+      if (!isTemplateChoice(tpl) || !Array.isArray(list)) continue;
+      fields[tpl] = list.filter((f): f is SpoolLabelField =>
         (SPOOL_LABEL_FIELDS as readonly string[]).includes(f),
       );
     }
   }
   return {
-    template: templates.includes(r.template as SpoolLabelTemplate)
-      ? (r.template as SpoolLabelTemplate)
-      : DEFAULT_PREFS.template,
+    template: isTemplateChoice(r.template) ? r.template : DEFAULT_PREFS.template,
     fields,
+    customDraft: isLayoutDraft(r.customDraft) ? r.customDraft : DEFAULT_PREFS.customDraft,
     monochrome: r.monochrome === true,
     format: r.format === 'png' ? 'png' : 'pdf',
     dpi: PNG_DPIS.includes(r.dpi as PngDpi) ? (r.dpi as PngDpi) : DEFAULT_PREFS.dpi,
@@ -163,7 +199,7 @@ function savePrefs(prefs: LabelPrefs): void {
   }
 }
 
-function fieldsFor(prefs: LabelPrefs, template: SpoolLabelTemplate): SpoolLabelField[] {
+function fieldsFor(prefs: LabelPrefs, template: TemplateChoice): SpoolLabelField[] {
   return prefs.fields[template] ?? DEFAULT_SPOOL_LABEL_FIELDS;
 }
 
@@ -191,7 +227,7 @@ function openBlobInNewTab(blob: Blob): void {
 }
 
 /** Save a PNG, or a ZIP of PNGs when there were several pages. */
-function downloadBlob(blob: Blob, template: SpoolLabelTemplate): void {
+function downloadBlob(blob: Blob, template: SpoolLabelRequestTemplate): void {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -287,6 +323,11 @@ export function LabelTemplatePickerModal({
   // memo has to recompute when the catalog finishes loading (#3090).
   const colorCatalogVersion = useColorCatalogVersion();
   const { showToast } = useToast();
+  const { hasPermission } = useAuth();
+  // Saving, editing and deleting templates is inventory:update, like storage
+  // locations; anyone who can print can use them (#3296).
+  const canManageTemplates = hasPermission('inventory:update');
+  const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState('');
@@ -300,6 +341,48 @@ export function LabelTemplatePickerModal({
   // The object URL on screen. Freed when its replacement arrives, not when the
   // options change, so the old label stays visible while the new one renders.
   const previewUrlRef = useRef<string | null>(null);
+  // A saved template being edited: its name and layout as typed, not yet saved.
+  const [editing, setEditing] = useState<{ name: string; draft: LayoutDraft } | null>(null);
+  // The name typed for "Save as template"; null while that form is closed.
+  const [newTemplateName, setNewTemplateName] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const savedQuery = useQuery({
+    queryKey: SAVED_TEMPLATES_KEY,
+    queryFn: api.getLabelTemplates,
+    enabled: isOpen,
+  });
+  const savedTemplates = useMemo(() => savedQuery.data ?? [], [savedQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: ({ id, name, layout }: { id?: number; name: string; layout: LabelSheetLayout }) =>
+      id === undefined ? api.createLabelTemplate({ name, layout }) : api.updateLabelTemplate(id, { name, layout }),
+    onSuccess: (saved) => {
+      // In the list before it is selected, so the selection doesn't fall back.
+      queryClient.setQueryData<SavedLabelTemplate[]>(SAVED_TEMPLATES_KEY, (old = []) => [
+        ...old.filter((tpl) => tpl.id !== saved.id),
+        saved,
+      ]);
+      void queryClient.invalidateQueries({ queryKey: SAVED_TEMPLATES_KEY });
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(t('inventory.labels.custom.saveFailed', 'Could not save the template: {{msg}}', { msg }), 'error');
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.deleteLabelTemplate(id),
+    onSuccess: (_, id) => {
+      queryClient.setQueryData<SavedLabelTemplate[]>(SAVED_TEMPLATES_KEY, (old = []) =>
+        old.filter((tpl) => tpl.id !== id),
+      );
+      void queryClient.invalidateQueries({ queryKey: SAVED_TEMPLATES_KEY });
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(t('inventory.labels.custom.deleteFailed', 'Could not delete the template: {{msg}}', { msg }), 'error');
+    },
+  });
 
   // Sync from caller and reset transient state on open. Intentionally not
   // reactive to props while open — once the user starts editing we don't want
@@ -315,6 +398,9 @@ export function LabelTemplatePickerModal({
       setPrefs(loadPrefs());
       setStartingPositionInput('1');
       setPending(false);
+      setEditing(null);
+      setNewTemplateName(null);
+      setConfirmDelete(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -367,6 +453,38 @@ export function LabelTemplatePickerModal({
   const template = prefs.template;
   const fields = fieldsFor(prefs, template);
   const fieldsKey = fields.join(',');
+
+  // A saved template or a one-off custom sheet prints as "custom" with its
+  // layout. The layout on screen is what prints, so an edit can be tried
+  // before it is saved.
+  const savedId = savedIdOf(template);
+  const savedTemplate = savedId === null ? undefined : savedTemplates.find((tpl) => tpl.id === savedId);
+  const isCustomSheet = template === 'custom' || savedId !== null;
+  const activeDraft: LayoutDraft | null =
+    template === 'custom'
+      ? prefs.customDraft
+      : editing
+        ? editing.draft
+        : savedTemplate
+          ? draftFromLayout(savedTemplate.layout)
+          : null;
+  const problem = activeDraft ? layoutProblem(activeDraft) : null;
+  const activeLayout = activeDraft && !problem ? parseDraft(activeDraft) : null;
+  // Waiting for the saved list, or a layout that can't print: nothing to send.
+  const sheetReady = !isCustomSheet || activeLayout !== null;
+  const requestTemplate: SpoolLabelRequestTemplate = isCustomSheet ? 'custom' : (template as SpoolLabelTemplate);
+  const layoutKey = activeLayout ? JSON.stringify(activeLayout) : '';
+
+  // A remembered saved template that has since been deleted: back to the default.
+  useEffect(() => {
+    if (!isOpen || !savedQuery.isSuccess || savedId === null) return;
+    if (savedTemplates.some((tpl) => tpl.id === savedId)) return;
+    setPrefs((prev) => {
+      const next = { ...prev, template: DEFAULT_PREFS.template };
+      savePrefs(next);
+      return next;
+    });
+  }, [isOpen, savedQuery.isSuccess, savedTemplates, savedId]);
   // The preview shows the first spool that will print, in print order.
   const previewSpoolId = sortedSpools.find((s) => selectedIds.has(s.id))?.id ?? null;
 
@@ -379,7 +497,7 @@ export function LabelTemplatePickerModal({
   // Re-render the preview a moment after the last change, dropping any
   // request still in flight so a slow answer can't overwrite a newer one.
   useEffect(() => {
-    if (!isOpen || previewSpoolId === null) {
+    if (!isOpen || previewSpoolId === null || !sheetReady) {
       showPreview(null);
       setPreviewError(null);
       setPreviewLoading(false);
@@ -390,7 +508,8 @@ export function LabelTemplatePickerModal({
     const timer = window.setTimeout(async () => {
       const request = {
         spool_id: previewSpoolId,
-        template,
+        template: requestTemplate,
+        ...(layoutKey ? { layout: JSON.parse(layoutKey) as LabelSheetLayout } : {}),
         monochrome: prefs.monochrome,
         fields: fieldsKey ? (fieldsKey.split(',') as SpoolLabelField[]) : [],
       };
@@ -413,7 +532,7 @@ export function LabelTemplatePickerModal({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [isOpen, previewSpoolId, template, fieldsKey, prefs.monochrome, spoolmanMode]);
+  }, [isOpen, previewSpoolId, sheetReady, requestTemplate, layoutKey, fieldsKey, prefs.monochrome, spoolmanMode]);
 
   // Free the last preview when the modal unmounts.
   useEffect(
@@ -427,18 +546,87 @@ export function LabelTemplatePickerModal({
 
   const selectedCount = selectedIds.size;
   const noSelection = selectedCount === 0;
-  const sheetCapacity = SHEET_CAPACITIES[template];
+  const sheetCapacity = isCustomSheet
+    ? activeLayout
+      ? activeLayout.cols * activeLayout.rows
+      : undefined
+    : SHEET_CAPACITIES[template as SpoolLabelTemplate];
   const startingPosition = Number(startingPositionInput);
   const startingPositionIsValid =
     sheetCapacity === undefined ||
     (Number.isInteger(startingPosition) && startingPosition >= 1 && startingPosition <= sheetCapacity);
   const templateOption = TEMPLATE_OPTIONS.find((o) => o.value === template) ?? TEMPLATE_OPTIONS[0];
+  const canPrint = !noSelection && !pending && startingPositionIsValid && sheetReady;
 
   function updatePrefs(change: Partial<LabelPrefs>) {
     setPrefs((prev) => {
       const next = { ...prev, ...change };
       savePrefs(next);
       return next;
+    });
+  }
+
+  function chooseTemplate(choice: TemplateChoice) {
+    setEditing(null);
+    setNewTemplateName(null);
+    updatePrefs({ template: choice });
+  }
+
+  function layoutSummary(layout: LabelSheetLayout): string {
+    return t(
+      'inventory.labels.custom.summary',
+      '{{page}} · {{width}} × {{height}} mm · {{capacity}} labels ({{cols}} × {{rows}})',
+      {
+        page:
+          layout.page === 'a4'
+            ? t('inventory.labels.custom.pageShortA4', 'A4')
+            : t('inventory.labels.custom.pageShortLetter', 'Letter'),
+        width: layout.label_w_mm,
+        height: layout.label_h_mm,
+        capacity: layout.cols * layout.rows,
+        cols: layout.cols,
+        rows: layout.rows,
+      },
+    );
+  }
+
+  function saveNewTemplate(name: string, layout: LabelSheetLayout) {
+    // The new template keeps the lines chosen for the sheet it was made from.
+    const sourceFields = fields;
+    saveMutation.mutate(
+      { name: name.trim(), layout },
+      {
+        onSuccess: (saved) => {
+          setEditing(null);
+          setNewTemplateName(null);
+          const choice = savedChoice(saved.id);
+          updatePrefs({ template: choice, fields: { ...prefs.fields, [choice]: sourceFields } });
+          showToast(t('inventory.labels.custom.saved', 'Template "{{name}}" saved', { name: saved.name }), 'success');
+        },
+      },
+    );
+  }
+
+  function saveEditedTemplate(id: number, name: string, layout: LabelSheetLayout) {
+    saveMutation.mutate(
+      { id, name: name.trim(), layout },
+      {
+        onSuccess: (saved) => {
+          setEditing(null);
+          showToast(t('inventory.labels.custom.saved', 'Template "{{name}}" saved', { name: saved.name }), 'success');
+        },
+      },
+    );
+  }
+
+  function deleteSavedTemplate(tpl: SavedLabelTemplate) {
+    deleteMutation.mutate(tpl.id, {
+      onSuccess: () => {
+        setConfirmDelete(false);
+        setEditing(null);
+        updatePrefs({ template: DEFAULT_PREFS.template });
+        showToast(t('inventory.labels.custom.deleted', 'Template "{{name}}" deleted', { name: tpl.name }), 'success');
+      },
     });
   }
 
@@ -482,14 +670,15 @@ export function LabelTemplatePickerModal({
   }
 
   async function handlePrint() {
-    if (noSelection || pending || !startingPositionIsValid) return;
+    if (!canPrint) return;
     // Order matters: the backend (labels.py) prints labels in the same order
     // we send IDs. Use the sorted list so a "by colour" sort flows through to
     // the output instead of being clobbered by an ascending-ID re-sort.
     const ids = sortedSpools.filter((s) => selectedIds.has(s.id)).map((s) => s.id);
     const request = {
       spool_ids: ids,
-      template,
+      template: requestTemplate,
+      ...(activeLayout ? { layout: activeLayout } : {}),
       monochrome: prefs.monochrome,
       starting_position: sheetCapacity === undefined ? 1 : startingPosition,
       fields,
@@ -502,7 +691,7 @@ export function LabelTemplatePickerModal({
         ? await api.printSpoolmanSpoolLabels(request)
         : await api.printSpoolLabels(request);
       if (prefs.format === 'pdf') openBlobInNewTab(blob);
-      else downloadBlob(blob, template);
+      else downloadBlob(blob, requestTemplate);
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -717,7 +906,7 @@ export function LabelTemplatePickerModal({
                 id="label-template"
                 data-testid="label-template-select"
                 value={template}
-                onChange={(e) => updatePrefs({ template: e.target.value as SpoolLabelTemplate })}
+                onChange={(e) => chooseTemplate(e.target.value as TemplateChoice)}
                 className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:outline-none focus:border-bambu-green"
               >
                 {TEMPLATE_OPTIONS.map((opt) => (
@@ -725,11 +914,132 @@ export function LabelTemplatePickerModal({
                     {t(`inventory.labels.templates.${opt.i18nKey}.label`, opt.fallbackLabel)}
                   </option>
                 ))}
+                {savedTemplates.length > 0 && (
+                  <optgroup label={t('inventory.labels.custom.savedGroup', 'Saved templates')}>
+                    {savedTemplates.map((tpl) => (
+                      <option key={tpl.id} value={savedChoice(tpl.id)}>
+                        {tpl.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <option value="custom">{t('inventory.labels.custom.option', 'Custom sheet…')}</option>
               </select>
-              <p className="text-xs text-bambu-gray">
-                {t(`inventory.labels.templates.${templateOption.i18nKey}.hint`, templateOption.fallbackHint)}
+              <p data-testid="label-template-hint" className="text-xs text-bambu-gray">
+                {template === 'custom'
+                  ? t('inventory.labels.custom.hint', 'Describe your own label sheet below.')
+                  : savedId !== null
+                    ? savedTemplate
+                      ? layoutSummary(savedTemplate.layout)
+                      : null
+                    : t(`inventory.labels.templates.${templateOption.i18nKey}.hint`, templateOption.fallbackHint)}
               </p>
             </div>
+
+            {/* A saved template: its sheet, and Edit / Delete for those who may (#3296). */}
+            {savedTemplate && !editing && (
+              <div className="space-y-2">
+                <LabelSheetDiagram layout={savedTemplate.layout} startingPosition={startingPositionIsValid ? startingPosition : 1} />
+                {canManageTemplates && (
+                  <div className="flex justify-center gap-4 text-xs">
+                    <button
+                      type="button"
+                      data-testid="label-template-edit"
+                      onClick={() =>
+                        setEditing({ name: savedTemplate.name, draft: draftFromLayout(savedTemplate.layout) })
+                      }
+                      className="text-bambu-green hover:underline"
+                    >
+                      {t('inventory.labels.custom.edit', 'Edit')}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="label-template-delete"
+                      onClick={() => setConfirmDelete(true)}
+                      className="text-red-400 hover:underline"
+                    >
+                      {t('inventory.labels.custom.delete', 'Delete')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Editing a saved template: the name and the whole layout. */}
+            {savedTemplate && editing && (
+              <div className="space-y-3">
+                <TemplateNameInput
+                  value={editing.name}
+                  onChange={(name) => setEditing({ ...editing, name })}
+                />
+                <LabelSheetLayoutEditor
+                  draft={editing.draft}
+                  onChange={(draft) => setEditing({ ...editing, draft })}
+                  problem={problem}
+                  startingPosition={startingPositionIsValid ? startingPosition : 1}
+                />
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button variant="secondary" onClick={() => setEditing(null)} disabled={saveMutation.isPending}>
+                    {t('common.cancel', 'Cancel')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    data-testid="label-template-save-as-new"
+                    disabled={!activeLayout || !editing.name.trim() || saveMutation.isPending}
+                    onClick={() => activeLayout && saveNewTemplate(editing.name, activeLayout)}
+                  >
+                    {t('inventory.labels.custom.saveAsNew', 'Save as new')}
+                  </Button>
+                  <Button
+                    data-testid="label-template-save-changes"
+                    disabled={!activeLayout || !editing.name.trim() || saveMutation.isPending}
+                    onClick={() => activeLayout && saveEditedTemplate(savedTemplate.id, editing.name, activeLayout)}
+                  >
+                    {t('inventory.labels.custom.saveChanges', 'Save changes')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* A one-off custom sheet, and saving it under a name. */}
+            {template === 'custom' && (
+              <div className="space-y-3">
+                <LabelSheetLayoutEditor
+                  draft={prefs.customDraft}
+                  onChange={(customDraft) => updatePrefs({ customDraft })}
+                  problem={problem}
+                  startingPosition={startingPositionIsValid ? startingPosition : 1}
+                />
+                {canManageTemplates &&
+                  (newTemplateName === null ? (
+                    <button
+                      type="button"
+                      data-testid="label-template-save-as"
+                      disabled={!activeLayout}
+                      onClick={() => setNewTemplateName('')}
+                      className="text-xs text-bambu-green hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
+                    >
+                      {t('inventory.labels.custom.saveAs', 'Save as template…')}
+                    </button>
+                  ) : (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="flex-1 min-w-40">
+                        <TemplateNameInput value={newTemplateName} onChange={setNewTemplateName} autoFocus />
+                      </div>
+                      <Button variant="secondary" onClick={() => setNewTemplateName(null)} disabled={saveMutation.isPending}>
+                        {t('common.cancel', 'Cancel')}
+                      </Button>
+                      <Button
+                        data-testid="label-template-save"
+                        disabled={!activeLayout || !newTemplateName.trim() || saveMutation.isPending}
+                        onClick={() => activeLayout && saveNewTemplate(newTemplateName, activeLayout)}
+                      >
+                        {t('inventory.labels.custom.save', 'Save')}
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            )}
 
             {/* Preview */}
             <div className="space-y-1">
@@ -745,6 +1055,10 @@ export function LabelTemplatePickerModal({
                 {previewSpoolId === null ? (
                   <span className="text-sm text-bambu-gray text-center">
                     {t('inventory.labels.previewNoSelection', 'Select a spool to see its label.')}
+                  </span>
+                ) : !sheetReady ? (
+                  <span className="text-sm text-bambu-gray text-center">
+                    {t('inventory.labels.custom.previewWaiting', 'The preview appears once the sheet layout is complete.')}
                   </span>
                 ) : previewError ? (
                   <span className="text-sm text-red-400 text-center">
@@ -874,6 +1188,15 @@ export function LabelTemplatePickerModal({
                 </div>
               )}
 
+              {sheetCapacity !== undefined && (
+                <p data-testid="label-scale-hint" className="text-xs text-bambu-gray">
+                  {t(
+                    'inventory.labels.scaleHint',
+                    'Print sheets at 100% (actual size), not "Fit to page": a shrunk page drifts off the labels.',
+                  )}
+                </p>
+              )}
+
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-sm text-white mr-1">
                   {t('inventory.labels.format', 'Output:')}
@@ -931,7 +1254,7 @@ export function LabelTemplatePickerModal({
           <Button
             data-testid="label-print-button"
             onClick={handlePrint}
-            disabled={noSelection || pending || !startingPositionIsValid}
+            disabled={!canPrint}
           >
             {pending ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -946,6 +1269,49 @@ export function LabelTemplatePickerModal({
           </Button>
         </div>
       </div>
+
+      {confirmDelete && savedTemplate && (
+        <ConfirmModal
+          title={t('inventory.labels.custom.deleteTitle', 'Delete label template')}
+          message={t(
+            'inventory.labels.custom.deleteMessage',
+            'Delete "{{name}}" for everyone? Labels already printed are not affected.',
+            { name: savedTemplate.name },
+          )}
+          confirmText={t('inventory.labels.custom.delete', 'Delete')}
+          variant="danger"
+          overlayZIndex="z-[60]"
+          isLoading={deleteMutation.isPending}
+          onConfirm={() => deleteSavedTemplate(savedTemplate)}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </div>
+  );
+}
+
+function TemplateNameInput({
+  value,
+  onChange,
+  autoFocus = false,
+}: {
+  value: string;
+  onChange: (name: string) => void;
+  autoFocus?: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <label className="block space-y-0.5">
+      <span className="text-xs text-bambu-gray">{t('inventory.labels.custom.name', 'Template name')}</span>
+      <input
+        data-testid="label-template-name"
+        type="text"
+        maxLength={100}
+        autoFocus={autoFocus}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-2 py-1 bg-bambu-dark border border-bambu-dark-tertiary rounded text-white text-sm focus:outline-none focus:border-bambu-green"
+      />
+    </label>
   );
 }

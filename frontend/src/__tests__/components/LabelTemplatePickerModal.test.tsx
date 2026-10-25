@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { render } from '../utils';
 import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
 import { LabelTemplatePickerModal } from '../../components/LabelTemplatePickerModal';
-import { api } from '../../api/client';
+import { api, setAuthToken } from '../../api/client';
 
 vi.mock('../../api/client', async (importOriginal) => ({
   // The field lists are real exports the modal renders from.
@@ -15,6 +15,12 @@ vi.mock('../../api/client', async (importOriginal) => ({
     previewSpoolmanSpoolLabel: vi.fn(),
     getSettings: vi.fn().mockResolvedValue({}),
     getAuthStatus: vi.fn().mockResolvedValue({ auth_enabled: false }),
+    getCurrentUser: vi.fn(),
+    getUiSettings: vi.fn().mockResolvedValue({}),
+    getLabelTemplates: vi.fn(),
+    createLabelTemplate: vi.fn(),
+    updateLabelTemplate: vi.fn(),
+    deleteLabelTemplate: vi.fn(),
   },
 }));
 
@@ -63,6 +69,7 @@ beforeEach(() => {
   vi.mocked(api.previewSpoolmanSpoolLabel).mockResolvedValue(PNG_BLOB);
   vi.mocked(api.getSettings).mockResolvedValue({} as never);
   vi.mocked(api.getAuthStatus).mockResolvedValue({ auth_enabled: false } as never);
+  vi.mocked(api.getLabelTemplates).mockResolvedValue([]);
   Object.defineProperty(window.URL, 'createObjectURL', {
     value: vi.fn(() => 'blob:mock'),
     configurable: true,
@@ -392,6 +399,7 @@ describe('LabelTemplatePickerModal', () => {
       'box_62x29',
       'avery_l7160',
       'avery_5160',
+      'custom',
     ]);
     expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
     expect(screen.getByTestId('label-template-picker-panel')).toHaveClass('max-h-[90vh]');
@@ -794,5 +802,254 @@ describe('PNG output (#2981)', () => {
     expect(screen.queryByTestId('label-dpi-select')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('label-format-png'));
     expect(screen.getByTestId('label-dpi-select')).toHaveValue('300');
+  });
+});
+
+describe('custom sheets and saved templates (#3296)', () => {
+  // A 3 × 8 sheet of 70 × 36 mm labels on A4, edge to edge (Avery 3490).
+  const LAYOUT_3490 = {
+    page: 'a4',
+    label_w_mm: 70,
+    label_h_mm: 36,
+    cols: 3,
+    rows: 8,
+    top_mm: 4.5,
+    left_mm: 0,
+    col_gap_mm: 0,
+    row_gap_mm: 0,
+  } as const;
+  const SAVED = {
+    id: 5,
+    name: 'Avery 3490',
+    layout: LAYOUT_3490,
+    created_at: '2026-10-25T00:00:00Z',
+    updated_at: '2026-10-25T00:00:00Z',
+  };
+
+  const openModal = (spoolmanMode = false) =>
+    render(
+      <LabelTemplatePickerModal
+        isOpen
+        onClose={vi.fn()}
+        availableSpools={SPOOLS}
+        initialSelectedIds={[1]}
+        spoolmanMode={spoolmanMode}
+      />,
+    );
+
+  function typeLayout(layout: Record<string, string | number>) {
+    for (const [field, value] of Object.entries(layout)) {
+      if (field === 'page') {
+        fireEvent.change(screen.getByTestId('label-sheet-page'), { target: { value } });
+      } else {
+        fireEvent.change(screen.getByTestId(`label-sheet-${field}`), { target: { value: String(value) } });
+      }
+    }
+  }
+
+  it('prints a one-off custom sheet with its layout', async () => {
+    vi.mocked(api.printSpoolLabels).mockResolvedValue(PDF_BLOB);
+    openModal();
+    pickTemplate('custom');
+    typeLayout(LAYOUT_3490);
+    fireEvent.change(screen.getByTestId('label-starting-position'), { target: { value: '24' } });
+    clickPrint();
+
+    await waitFor(() =>
+      expect(api.printSpoolLabels).toHaveBeenCalledWith(
+        printRequest({ spool_ids: [1], template: 'custom', layout: LAYOUT_3490, starting_position: 24 }),
+      ),
+    );
+  });
+
+  it('bounds the starting position by the custom grid', () => {
+    openModal();
+    pickTemplate('custom');
+    typeLayout(LAYOUT_3490);
+    fireEvent.change(screen.getByTestId('label-starting-position'), { target: { value: '25' } });
+
+    expect(screen.getByTestId('label-starting-position-status')).toHaveTextContent('1 to 24');
+    expect(screen.getByTestId('label-print-button')).toBeDisabled();
+  });
+
+  it('explains a sheet that runs off the page and will not print it', async () => {
+    openModal();
+    pickTemplate('custom');
+    typeLayout({ ...LAYOUT_3490, left_mm: 1 });
+
+    expect(screen.getByTestId('label-sheet-problem')).toHaveTextContent('211 mm wide');
+    expect(screen.getAllByTestId('label-sheet-cell-off-page')).toHaveLength(8);
+    expect(screen.getByTestId('label-print-button')).toBeDisabled();
+    expect(screen.getByTestId('label-preview')).toHaveTextContent(/sheet layout is complete/);
+  });
+
+  it('asks for every field before drawing or printing', () => {
+    openModal();
+    pickTemplate('custom');
+    typeLayout({ rows: '' });
+
+    expect(screen.getByTestId('label-sheet-problem')).toHaveTextContent(/every field/);
+    expect(screen.queryByTestId('label-sheet-diagram')).not.toBeInTheDocument();
+    expect(screen.getByTestId('label-print-button')).toBeDisabled();
+  });
+
+  it('previews a custom sheet with its layout', async () => {
+    openModal();
+    pickTemplate('custom');
+    typeLayout(LAYOUT_3490);
+
+    await waitFor(() =>
+      expect(api.previewSpoolLabel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ template: 'custom', layout: LAYOUT_3490 }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it('remembers the custom sheet for next time', () => {
+    const first = openModal();
+    pickTemplate('custom');
+    typeLayout({ label_w_mm: '70', rows: '8' });
+    first.unmount();
+
+    openModal();
+    expect(screen.getByTestId('label-template-select')).toHaveValue('custom');
+    expect(screen.getByTestId('label-sheet-label_w_mm')).toHaveValue('70');
+    expect(screen.getByTestId('label-sheet-rows')).toHaveValue('8');
+  });
+
+  it('lists saved templates and prints with the saved layout', async () => {
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([SAVED]);
+    vi.mocked(api.printSpoolmanSpoolLabels).mockResolvedValue(PDF_BLOB);
+    openModal(true);
+
+    await screen.findByRole('option', { name: 'Avery 3490' });
+    pickTemplate('saved:5');
+    expect(screen.getByTestId('label-template-hint')).toHaveTextContent('24 labels (3 × 8)');
+    expect(screen.getByTestId('label-sheet-diagram')).toBeInTheDocument();
+    clickPrint();
+
+    await waitFor(() =>
+      expect(api.printSpoolmanSpoolLabels).toHaveBeenCalledWith(
+        printRequest({ spool_ids: [1], template: 'custom', layout: LAYOUT_3490 }),
+      ),
+    );
+  });
+
+  it('saves a custom sheet under a name and switches to it', async () => {
+    vi.mocked(api.createLabelTemplate).mockResolvedValue(SAVED);
+    openModal();
+    pickTemplate('custom');
+    typeLayout(LAYOUT_3490);
+    fireEvent.click(screen.getByTestId('label-field-note'));
+    fireEvent.click(screen.getByTestId('label-template-save-as'));
+    fireEvent.change(screen.getByTestId('label-template-name'), { target: { value: '  Avery 3490 ' } });
+    // The list the dialog reloads after saving.
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([SAVED]);
+    fireEvent.click(screen.getByTestId('label-template-save'));
+
+    await waitFor(() =>
+      expect(api.createLabelTemplate).toHaveBeenCalledWith({ name: 'Avery 3490', layout: LAYOUT_3490 }),
+    );
+    await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('saved:5'));
+    // The lines chosen for the custom sheet came along.
+    expect(screen.getByTestId('label-field-note')).toBeChecked();
+  });
+
+  it('edits a saved template in place or as a new one', async () => {
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([SAVED]);
+    const updated = { ...SAVED, layout: { ...LAYOUT_3490, rows: 7 } };
+    vi.mocked(api.updateLabelTemplate).mockResolvedValue(updated);
+    openModal();
+    await screen.findByRole('option', { name: 'Avery 3490' });
+    pickTemplate('saved:5');
+
+    fireEvent.click(screen.getByTestId('label-template-edit'));
+    typeLayout({ rows: '7' });
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([updated]);
+    fireEvent.click(screen.getByTestId('label-template-save-changes'));
+    await waitFor(() =>
+      expect(api.updateLabelTemplate).toHaveBeenCalledWith(5, {
+        name: 'Avery 3490',
+        layout: { ...LAYOUT_3490, rows: 7 },
+      }),
+    );
+
+    const copy = { ...updated, id: 6, name: 'Avery 3490 short' };
+    vi.mocked(api.createLabelTemplate).mockResolvedValue(copy);
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([updated, copy]);
+    await waitFor(() => expect(screen.getByTestId('label-template-edit')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('label-template-edit'));
+    fireEvent.change(screen.getByTestId('label-template-name'), { target: { value: 'Avery 3490 short' } });
+    fireEvent.click(screen.getByTestId('label-template-save-as-new'));
+    await waitFor(() =>
+      expect(api.createLabelTemplate).toHaveBeenCalledWith({
+        name: 'Avery 3490 short',
+        layout: { ...LAYOUT_3490, rows: 7 },
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('saved:6'));
+  });
+
+  it('deletes a saved template after confirming and goes back to the default', async () => {
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([SAVED]);
+    vi.mocked(api.deleteLabelTemplate).mockResolvedValue(undefined);
+    openModal();
+    await screen.findByRole('option', { name: 'Avery 3490' });
+    pickTemplate('saved:5');
+
+    fireEvent.click(screen.getByTestId('label-template-delete'));
+    expect(api.deleteLabelTemplate).not.toHaveBeenCalled();
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([]);
+    // The confirm dialog's button, not the link that opened it.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!);
+
+    await waitFor(() => expect(api.deleteLabelTemplate).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('ams_holder_74x33'));
+  });
+
+  it('falls back to the default when a remembered template is gone', async () => {
+    const store = new Map([['bambuddy-label-print-options', JSON.stringify({ template: 'saved:9' })]]);
+    vi.mocked(localStorage.getItem).mockImplementation((key) => store.get(key) ?? null);
+    openModal();
+
+    await waitFor(() => expect(api.getLabelTemplates).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('ams_holder_74x33'));
+  });
+
+  describe('for a user who may print but not edit inventory', () => {
+    beforeEach(() => {
+      setAuthToken('viewer-token');
+      vi.mocked(api.getAuthStatus).mockResolvedValue({ auth_enabled: true, requires_setup: false } as never);
+      vi.mocked(api.getCurrentUser).mockResolvedValue({
+        id: 3,
+        username: 'viewer',
+        is_admin: false,
+        is_active: true,
+        groups: [],
+        permissions: ['inventory:read'],
+      } as never);
+      vi.mocked(api.getLabelTemplates).mockResolvedValue([SAVED]);
+    });
+
+    afterEach(() => {
+      setAuthToken(null);
+    });
+
+    it('can use saved templates and custom sheets but not change templates', async () => {
+      openModal();
+      await waitFor(() => expect(api.getCurrentUser).toHaveBeenCalled());
+      await screen.findByRole('option', { name: 'Avery 3490' });
+
+      pickTemplate('saved:5');
+      expect(screen.getByTestId('label-sheet-diagram')).toBeInTheDocument();
+      expect(screen.queryByTestId('label-template-edit')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('label-template-delete')).not.toBeInTheDocument();
+
+      pickTemplate('custom');
+      typeLayout(LAYOUT_3490);
+      expect(screen.queryByTestId('label-template-save-as')).not.toBeInTheDocument();
+      expect(screen.getByTestId('label-print-button')).toBeEnabled();
+    });
   });
 });
