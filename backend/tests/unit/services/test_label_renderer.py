@@ -8,7 +8,13 @@ import pytest
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import mm
 
-from backend.app.services.label_renderer import LabelData, render_labels
+from backend.app.services.label_renderer import (
+    LabelData,
+    SheetLayout,
+    get_sheet_capacity,
+    label_size_mm,
+    render_labels,
+)
 
 ALL_TEMPLATES = (
     "ams_holder_74x33",
@@ -417,3 +423,91 @@ def test_roomy_qr_size_has_floor_for_narrow_labels():
     inner_h_big = 55 * mm - 2 * pad
     size_big = _roomy_qr_size(inner_w_big, inner_h_big)
     assert 12 * mm <= size_big <= 18 * mm
+
+
+# ── Custom sheet layouts (#3296) ──
+
+
+def _layout(**overrides) -> SheetLayout:
+    # A 3 × 8 sheet of 70 × 36 mm labels on A4, edge to edge (Avery 3490).
+    fields = {
+        "page": "a4",
+        "label_w_mm": 70.0,
+        "label_h_mm": 36.0,
+        "cols": 3,
+        "rows": 8,
+        "top_mm": 4.5,
+        "left_mm": 0.0,
+    }
+    fields.update(overrides)
+    return SheetLayout(**fields)
+
+
+def test_a_layout_that_fills_the_page_exactly_is_printable():
+    assert _layout().problem() is None
+    assert _layout().capacity == 24
+
+
+def test_inch_based_sheet_within_rounding_still_fits():
+    # Avery 5160 measured in inches: 3 × 2.625" + 2 × 0.125" gaps + 0.1875" margin
+    # comes to 215.9 mm, Letter's full width, give or take float rounding.
+    layout = SheetLayout(
+        "letter", 2.625 * 25.4, 25.4, 3, 10, top_mm=12.7, left_mm=0.1875 * 25.4, col_gap_mm=0.125 * 25.4
+    )
+    assert layout.problem() is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"left_mm": 1.0}, "wide"),
+        ({"rows": 9}, "tall"),
+        ({"row_gap_mm": 2.0}, "tall"),
+        ({"label_h_mm": 9.9}, "at least"),
+        ({"cols": 0}, "Columns"),
+        ({"rows": 41, "label_h_mm": 10.0, "top_mm": 0.0}, "Rows"),
+        ({"col_gap_mm": -0.5, "cols": 2}, "negative"),
+        ({"page": "a3"}, "page size"),
+    ],
+)
+def test_layout_problems_are_named(overrides, message):
+    assert message in _layout(**overrides).problem()
+
+
+def test_render_refuses_a_layout_that_does_not_fit():
+    with pytest.raises(ValueError, match="wide"):
+        render_labels(_layout(left_mm=1.0), [_sample()])
+
+
+def test_custom_layout_places_labels_with_gaps():
+    layout = _layout(
+        page="letter",
+        label_w_mm=60.0,
+        label_h_mm=30.0,
+        cols=2,
+        rows=3,
+        top_mm=10.0,
+        left_mm=5.0,
+        col_gap_mm=4.0,
+        row_gap_mm=2.0,
+    )
+    data = [_sample(i) for i in range(1, 8)]
+    with patch("backend.app.services.label_renderer._draw_label") as draw_label:
+        render_labels(layout, data, starting_position=2)
+
+    calls = [call.args for call in draw_label.call_args_list]
+    # Slot 2 is the top-right cell of page one.
+    assert calls[0][1] == pytest.approx(5.0 * mm + 64.0 * mm)
+    assert calls[0][2] == pytest.approx(letter[1] - 10.0 * mm - 30.0 * mm)
+    assert calls[0][3:5] == (pytest.approx(60.0 * mm), pytest.approx(30.0 * mm))
+    # Slot 6 is the bottom-right cell: two row gaps above it.
+    assert calls[4][2] == pytest.approx(letter[1] - 10.0 * mm - 3 * 30.0 * mm - 2 * 2.0 * mm)
+    # The sixth label starts page two at the top-left.
+    assert calls[5][1:3] == (pytest.approx(5.0 * mm), pytest.approx(letter[1] - 10.0 * mm - 30.0 * mm))
+
+
+def test_custom_layout_size_and_capacity():
+    layout = _layout()
+    assert label_size_mm(layout) == (70.0, 36.0)
+    assert get_sheet_capacity(layout) == 24
+    assert render_labels(layout, [_sample()]).startswith(b"%PDF")
