@@ -2619,6 +2619,7 @@ export default {
       updateFailed: '항목 업데이트 실패',
       entryDeleted: '항목이 삭제되었습니다',
       deleteFailed: '항목 삭제 실패',
+      nameTaken: '같은 이름의 라벨 템플릿이 이미 있습니다.',
       resetSuccess: '카탈로그가 기본값으로 초기화되었습니다',
       resetFailed: '카탈로그 초기화 실패',
       exported: '{{count}}개 항목이 내보내졌습니다',
@@ -4869,6 +4870,7 @@ export default {
       noSpoolsTitle: '라벨을 붙일 스풀 없음',
       error: '라벨을 생성할 수 없습니다: {{msg}}',
       scaleHint: '시트는 "페이지에 맞춤"이 아닌 100%(실제 크기)로 인쇄하세요. 축소되면 라벨에서 어긋납니다.',
+      pngTooLarge: 'PNG 내보내기는 {{dpi}} dpi에서 시트 {{maxPages}}페이지까지인데 이 작업은 {{pages}}페이지입니다. PDF, 더 낮은 해상도 또는 더 적은 스풀을 사용하세요.',
       custom: {
         option: '사용자 지정 시트…',
         savedGroup: '저장된 템플릿',
@@ -4906,7 +4908,8 @@ export default {
         deleteFailed: '템플릿을 삭제하지 못했습니다: {{msg}}',
         problems: {
           incomplete: '모든 칸에 숫자를 입력하세요.',
-          tooSmall: '라벨의 너비와 높이는 {{min}} mm 이상이어야 합니다.',
+          tooSmall: '라벨은 너비 {{minWidth}} mm, 높이 {{minHeight}} mm 이상이어야 텍스트가 들어갑니다.',
+          tooLong: '크기, 여백, 간격은 최대 {{max}} mm입니다.',
           columns: '열은 1에서 {{max}} 사이의 정수여야 합니다.',
           rows: '행은 1에서 {{max}} 사이의 정수여야 합니다.',
           negative: '여백과 간격은 음수일 수 없습니다.',

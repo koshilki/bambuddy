@@ -2752,6 +2752,7 @@ export default {
       updateFailed: '更新条目失败',
       entryDeleted: '条目已删除',
       deleteFailed: '删除条目失败',
+      nameTaken: '已有同名的标签模板。',
       resetSuccess: '目录已重置为默认值',
       resetFailed: '重置目录失败',
       exported: '已导出 {{count}} 条',
@@ -5102,6 +5103,7 @@ export default {
         color: '按颜色',
       },
       scaleHint: '请以 100%（实际大小）打印标签纸，不要选“适合页面”：缩小的页面会与标签错位。',
+      pngTooLarge: 'PNG 导出在 {{dpi}} dpi 下最多 {{maxPages}} 页标签纸，而这次是 {{pages}} 页。请改用 PDF、更低的分辨率或更少的耗材。',
       custom: {
         option: '自定义标签纸…',
         savedGroup: '已保存的模板',
@@ -5139,7 +5141,8 @@ export default {
         deleteFailed: '无法删除模板：{{msg}}',
         problems: {
           incomplete: '请在每一栏填入数字。',
-          tooSmall: '标签的宽度和高度至少为 {{min}} 毫米。',
+          tooSmall: '标签宽度至少 {{minWidth}} 毫米、高度至少 {{minHeight}} 毫米，否则放不下文字。',
+          tooLong: '尺寸、边距和间距最多 {{max}} 毫米。',
           columns: '列数必须是 1 到 {{max}} 之间的整数。',
           rows: '行数必须是 1 到 {{max}} 之间的整数。',
           negative: '边距和间距不能为负数。',

@@ -2752,6 +2752,7 @@ export default {
       updateFailed: '更新條目失敗',
       entryDeleted: '條目已刪除',
       deleteFailed: '刪除條目失敗',
+      nameTaken: '已有同名的標籤範本。',
       resetSuccess: '目錄已重設為預設值',
       resetFailed: '重設目錄失敗',
       exported: '已匯出 {{count}} 條',
@@ -5102,6 +5103,7 @@ export default {
         color: '按顏色',
       },
       scaleHint: '請以 100%（實際大小）列印標籤紙，不要選「符合頁面大小」：縮小的頁面會與標籤錯位。',
+      pngTooLarge: 'PNG 匯出在 {{dpi}} dpi 下最多 {{maxPages}} 頁標籤紙，而這次是 {{pages}} 頁。請改用 PDF、較低的解析度或較少的線材。',
       custom: {
         option: '自訂標籤紙…',
         savedGroup: '已儲存的範本',
@@ -5139,7 +5141,8 @@ export default {
         deleteFailed: '無法刪除範本：{{msg}}',
         problems: {
           incomplete: '請在每一欄填入數字。',
-          tooSmall: '標籤的寬度和高度至少為 {{min}} 公釐。',
+          tooSmall: '標籤寬度至少 {{minWidth}} 公釐、高度至少 {{minHeight}} 公釐，否則放不下文字。',
+          tooLong: '尺寸、邊界和間距最多 {{max}} 公釐。',
           columns: '欄數必須是 1 到 {{max}} 之間的整數。',
           rows: '列數必須是 1 到 {{max}} 之間的整數。',
           negative: '邊界和間距不能是負數。',

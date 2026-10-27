@@ -2751,6 +2751,7 @@ export default {
       updateFailed: 'エントリの更新に失敗しました',
       entryDeleted: 'エントリを削除しました',
       deleteFailed: 'エントリの削除に失敗しました',
+      nameTaken: 'この名前のラベルテンプレートは既にあります。',
       resetSuccess: 'カタログをデフォルトにリセットしました',
       resetFailed: 'カタログのリセットに失敗しました',
       exported: '{{count}}件のエントリをエクスポートしました',
@@ -5115,6 +5116,7 @@ export default {
         color: '色順',
       },
       scaleHint: 'シートは「ページに合わせる」ではなく100%（実際のサイズ）で印刷してください。縮小されるとラベルからずれます。',
+      pngTooLarge: 'PNG出力は{{dpi}} dpiでシート{{maxPages}}ページまでですが、これは{{pages}}ページです。PDF、低い解像度、または少ないスプールを使ってください。',
       custom: {
         option: 'カスタムシート…',
         savedGroup: '保存済みテンプレート',
@@ -5152,7 +5154,8 @@ export default {
         deleteFailed: 'テンプレートを削除できませんでした：{{msg}}',
         problems: {
           incomplete: 'すべての項目に数値を入力してください。',
-          tooSmall: 'ラベルの幅と高さは{{min}} mm以上にしてください。',
+          tooSmall: 'ラベルは幅{{minWidth}} mm以上、高さ{{minHeight}} mm以上にしてください。小さいと文字が入りません。',
+          tooLong: 'サイズ、余白、間隔は最大{{max}} mmです。',
           columns: '列数は1～{{max}}の整数にしてください。',
           rows: '行数は1～{{max}}の整数にしてください。',
           negative: '余白と間隔に負の値は使えません。',

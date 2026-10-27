@@ -2707,6 +2707,7 @@ export default {
       updateFailed: 'Falha ao atualizar entrada',
       entryDeleted: 'Entrada excluída',
       deleteFailed: 'Falha ao excluir entrada',
+      nameTaken: 'Já existe um modelo de etiquetas com este nome.',
       resetSuccess: 'Catálogo redefinido para os padrões',
       resetFailed: 'Falha ao redefinir catálogo',
       exported: 'Exportadas {{count}} entradas',
@@ -5102,6 +5103,7 @@ export default {
         color: 'Por cor',
       },
       scaleHint: 'Imprima as folhas em 100% (tamanho real), não em "Ajustar à página": uma página reduzida se desloca em relação às etiquetas.',
+      pngTooLarge: 'A exportação PNG é limitada a {{maxPages}} páginas de folha a {{dpi}} dpi, e esta tem {{pages}}. Use PDF, uma resolução menor ou menos carretéis.',
       custom: {
         option: 'Folha personalizada…',
         savedGroup: 'Modelos salvos',
@@ -5139,7 +5141,8 @@ export default {
         deleteFailed: 'Não foi possível excluir o modelo: {{msg}}',
         problems: {
           incomplete: 'Preencha cada campo com um número.',
-          tooSmall: 'As etiquetas devem ter pelo menos {{min}} mm de largura e altura.',
+          tooSmall: 'As etiquetas devem ter pelo menos {{minWidth}} mm de largura e {{minHeight}} mm de altura, ou o texto não cabe.',
+          tooLong: 'Tamanhos, margens e espaços podem ter no máximo {{max}} mm.',
           columns: 'As colunas devem ser um número inteiro de 1 a {{max}}.',
           rows: 'As linhas devem ser um número inteiro de 1 a {{max}}.',
           negative: 'Margens e espaços não podem ser negativos.',

@@ -14,8 +14,10 @@ class LabelTemplate(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    # Case-insensitive uniqueness: "Avery 3490" and "avery 3490" are one template.
-    name_key: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    # Uniqueness ignoring case and Unicode composition: "Avery 3490" and
+    # "avery 3490" are one template. Casefolding can lengthen a name up to
+    # three times, hence the wider column (schemas.label_template).
+    name_key: Mapped[str] = mapped_column(String(300), nullable=False, unique=True, index=True)
     page: Mapped[str] = mapped_column(String(10), nullable=False)
     label_w_mm: Mapped[float] = mapped_column(Float, nullable=False)
     label_h_mm: Mapped[float] = mapped_column(Float, nullable=False)

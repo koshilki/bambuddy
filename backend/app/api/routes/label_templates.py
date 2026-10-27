@@ -19,7 +19,11 @@ from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.label_template import LabelTemplate
 from backend.app.models.user import User
-from backend.app.schemas.label_template import LabelTemplateIn, LabelTemplateResponse, SheetLayoutResponse
+from backend.app.schemas.label_template import (
+    LabelTemplateIn,
+    LabelTemplateResponse,
+    SheetLayoutResponse,
+)
 from backend.app.utils.natural_sort import natural_sort_key
 
 router = APIRouter(prefix="/label-templates", tags=["labels"])
@@ -41,13 +45,13 @@ def _to_response(template: LabelTemplate) -> LabelTemplateResponse:
 
 def _apply(template: LabelTemplate, data: LabelTemplateIn) -> None:
     template.name = data.name
-    template.name_key = data.name.lower()
+    template.name_key = data.name_key
     for col, value in data.layout.model_dump().items():
         setattr(template, col, value)
 
 
-async def _name_taken(db: AsyncSession, name: str, exclude_id: int | None = None) -> bool:
-    query = select(LabelTemplate.id).where(LabelTemplate.name_key == name.lower())
+async def _name_taken(db: AsyncSession, name_key: str, exclude_id: int | None = None) -> bool:
+    query = select(LabelTemplate.id).where(LabelTemplate.name_key == name_key)
     if exclude_id is not None:
         query = query.where(LabelTemplate.id != exclude_id)
     return (await db.execute(query)).first() is not None
@@ -82,7 +86,7 @@ async def create_label_template(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
 ):
     """Save a custom sheet layout under a name."""
-    if await _name_taken(db, data.name):
+    if await _name_taken(db, data.name_key):
         raise HTTPException(status_code=409, detail=DUPLICATE_NAME)
     template = LabelTemplate()
     _apply(template, data)
@@ -103,7 +107,7 @@ async def replace_label_template(
     template = await db.get(LabelTemplate, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Label template not found")
-    if await _name_taken(db, data.name, exclude_id=template_id):
+    if await _name_taken(db, data.name_key, exclude_id=template_id):
         raise HTTPException(status_code=409, detail=DUPLICATE_NAME)
     _apply(template, data)
     await _commit(db, template)

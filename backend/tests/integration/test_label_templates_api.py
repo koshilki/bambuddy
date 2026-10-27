@@ -96,7 +96,8 @@ async def test_changing_only_the_case_of_its_own_name_is_allowed(async_client: A
         {"cols": 4},  # 4 × 70 mm is wider than A4
         {"rows": 9},  # 4.5 + 9 × 36 mm is taller than A4
         {"left_mm": 1.0},  # pushes the third column 1 mm off the page
-        {"label_w_mm": 5.0},
+        {"label_w_mm": 39.0},  # below the 40 mm a label needs for its text
+        {"label_h_mm": 19.0},  # below the 20 mm of the full layout
         {"cols": 0},
         {"top_mm": -1.0},
         {"page": "a3"},
@@ -106,6 +107,24 @@ async def test_a_layout_that_cannot_print_is_refused(async_client: AsyncClient, 
     resp = await async_client.post("/api/v1/label-templates", json=_template(**layout))
     assert resp.status_code == 422, resp.text
     assert (await async_client.get("/api/v1/label-templates")).json() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_names_match_whatever_the_unicode_composition(async_client: AsyncClient):
+    composed = "Caf\u00e9 sheet"
+    combining = "Cafe\u0301 sheet"
+    assert (await async_client.post("/api/v1/label-templates", json=_template(composed))).status_code == 201
+    assert (await async_client.post("/api/v1/label-templates", json=_template(combining))).status_code == 409
+    assert (await async_client.post("/api/v1/label-templates", json=_template("CAFÉ SHEET"))).status_code == 409
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_a_name_that_casefolds_longer_still_fits(async_client: AsyncClient):
+    # "İ" lowercases to two characters; 100 of them make a 200-character key.
+    resp = await async_client.post("/api/v1/label-templates", json=_template("\u0130" * 100))
+    assert resp.status_code == 201, resp.text
 
 
 @pytest.mark.asyncio

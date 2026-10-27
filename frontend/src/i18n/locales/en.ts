@@ -2774,6 +2774,7 @@ export default {
       updateFailed: 'Failed to update entry',
       entryDeleted: 'Entry deleted',
       deleteFailed: 'Failed to delete entry',
+      nameTaken: 'A label template with this name already exists.',
       resetSuccess: 'Catalog reset to defaults',
       resetFailed: 'Failed to reset catalog',
       exported: 'Exported {{count}} entries',
@@ -5153,6 +5154,7 @@ export default {
         color: 'By colour',
       },
       scaleHint: 'Print sheets at 100% (actual size), not "Fit to page": a shrunk page drifts off the labels.',
+      pngTooLarge: 'PNG export is limited to {{maxPages}} sheet pages at {{dpi}} dpi, and this is {{pages}}. Use PDF, a lower resolution or fewer spools.',
       custom: {
         option: 'Custom sheet…',
         savedGroup: 'Saved templates',
@@ -5190,7 +5192,8 @@ export default {
         deleteFailed: 'Could not delete the template: {{msg}}',
         problems: {
           incomplete: 'Fill in every field with a number.',
-          tooSmall: 'Labels must be at least {{min}} mm wide and tall.',
+          tooSmall: 'Labels must be at least {{minWidth}} mm wide and {{minHeight}} mm tall, or the text doesn’t fit.',
+          tooLong: 'Sizes, margins and gaps can be at most {{max}} mm.',
           columns: 'Columns must be a whole number from 1 to {{max}}.',
           rows: 'Rows must be a whole number from 1 to {{max}}.',
           negative: 'Margins and gaps can’t be negative.',

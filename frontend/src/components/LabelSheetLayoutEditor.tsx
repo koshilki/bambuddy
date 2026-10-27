@@ -1,9 +1,11 @@
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LabelPageSize, LabelSheetLayout } from '../api/client';
 import {
   MAX_COLS,
   MAX_ROWS,
   PAGE_SIZES_MM,
+  formatMm,
   parseDraft,
   type LayoutDraft,
   type LayoutNumberField,
@@ -88,8 +90,14 @@ export function LabelSheetLayoutEditor({
   problem: LayoutProblem | null;
   startingPosition?: number;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const hintId = useId();
+  const problemId = useId();
   const layout = parseDraft(draft);
+  // Lengths and counts in the reader's own number format (70,5 mm in German).
+  const problemParams = problem?.params
+    ? Object.fromEntries(Object.entries(problem.params).map(([k, v]) => [k, formatMm(v, i18n.language)]))
+    : undefined;
   // Drawn while it is a sane grid, overflow included: that is what the drawing
   // is for. A grid past the limits is only explained, not drawn box by box.
   const drawable =
@@ -135,20 +143,22 @@ export function LabelSheetLayoutEditor({
               inputMode={unit ? 'decimal' : 'numeric'}
               value={draft[field]}
               onChange={(e) => onChange({ ...draft, [field]: e.target.value })}
+              aria-describedby={problem ? `${hintId} ${problemId}` : hintId}
+              aria-invalid={problem ? true : undefined}
               className={inputClass}
             />
           </label>
         ))}
       </div>
-      <p className="text-xs text-bambu-gray">
+      <p id={hintId} className="text-xs text-bambu-gray">
         {t(
           'inventory.labels.custom.measureHint',
           'Measure from the top-left corner of the page: margins to the first label, gaps between neighbouring labels.',
         )}
       </p>
       {problem && (
-        <p data-testid="label-sheet-problem" aria-live="polite" className="text-xs text-red-400">
-          {t(`inventory.labels.custom.problems.${problem.key}`, problem.fallback, problem.params)}
+        <p id={problemId} data-testid="label-sheet-problem" aria-live="polite" className="text-xs text-red-400">
+          {t(`inventory.labels.custom.problems.${problem.key}`, problem.fallback, problemParams)}
         </p>
       )}
       {drawable && layout && <LabelSheetDiagram layout={layout} startingPosition={startingPosition} />}

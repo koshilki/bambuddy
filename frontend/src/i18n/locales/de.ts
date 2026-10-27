@@ -2752,6 +2752,7 @@ export default {
       updateFailed: 'Eintrag konnte nicht aktualisiert werden',
       entryDeleted: 'Eintrag gelöscht',
       deleteFailed: 'Eintrag konnte nicht gelöscht werden',
+      nameTaken: 'Eine Etikettenvorlage mit diesem Namen gibt es bereits.',
       resetSuccess: 'Katalog auf Standardwerte zurückgesetzt',
       resetFailed: 'Katalog konnte nicht zurückgesetzt werden',
       exported: '{{count}} Einträge exportiert',
@@ -5115,6 +5116,7 @@ export default {
         color: 'Nach Farbe',
       },
       scaleHint: 'Bögen mit 100 % (tatsächliche Größe) drucken, nicht „An Seite anpassen“: Eine verkleinerte Seite verrutscht gegenüber den Etiketten.',
+      pngTooLarge: 'Der PNG-Export ist bei {{dpi}} dpi auf {{maxPages}} Bogenseiten begrenzt, dies sind {{pages}}. Nutze PDF, eine niedrigere Auflösung oder weniger Spulen.',
       custom: {
         option: 'Eigener Bogen…',
         savedGroup: 'Gespeicherte Vorlagen',
@@ -5152,7 +5154,8 @@ export default {
         deleteFailed: 'Vorlage konnte nicht gelöscht werden: {{msg}}',
         problems: {
           incomplete: 'Fülle jedes Feld mit einer Zahl aus.',
-          tooSmall: 'Etiketten müssen mindestens {{min}} mm breit und hoch sein.',
+          tooSmall: 'Etiketten müssen mindestens {{minWidth}} mm breit und {{minHeight}} mm hoch sein, sonst passt der Text nicht.',
+          tooLong: 'Größen, Ränder und Abstände dürfen höchstens {{max}} mm betragen.',
           columns: 'Spalten müssen eine ganze Zahl von 1 bis {{max}} sein.',
           rows: 'Zeilen müssen eine ganze Zahl von 1 bis {{max}} sein.',
           negative: 'Ränder und Abstände dürfen nicht negativ sein.',

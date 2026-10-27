@@ -2707,6 +2707,7 @@ export default {
       updateFailed: 'Échec mise à jour',
       entryDeleted: 'Entrée supprimée',
       deleteFailed: 'Échec suppression',
+      nameTaken: 'Un modèle d’étiquettes porte déjà ce nom.',
       resetSuccess: 'Catalogue réinitialisé',
       resetFailed: 'Échec réinitialisation',
       exported: '{{count}} entrées exportées',
@@ -5103,6 +5104,7 @@ export default {
         color: 'Par couleur',
       },
       scaleHint: 'Imprimez les planches à 100 % (taille réelle), pas en « Ajuster à la page » : une page réduite se décale par rapport aux étiquettes.',
+      pngTooLarge: 'L’export PNG est limité à {{maxPages}} pages de planche à {{dpi}} ppp, et il y en a {{pages}}. Utilisez le PDF, une résolution plus basse ou moins de bobines.',
       custom: {
         option: 'Planche personnalisée…',
         savedGroup: 'Modèles enregistrés',
@@ -5140,7 +5142,8 @@ export default {
         deleteFailed: 'Impossible de supprimer le modèle : {{msg}}',
         problems: {
           incomplete: 'Remplissez chaque champ avec un nombre.',
-          tooSmall: 'Les étiquettes doivent mesurer au moins {{min}} mm de large et de haut.',
+          tooSmall: 'Les étiquettes doivent mesurer au moins {{minWidth}} mm de large et {{minHeight}} mm de haut, sinon le texte ne tient pas.',
+          tooLong: 'Les tailles, marges et espaces ne peuvent pas dépasser {{max}} mm.',
           columns: 'Le nombre de colonnes doit être un entier de 1 à {{max}}.',
           rows: 'Le nombre de lignes doit être un entier de 1 à {{max}}.',
           negative: 'Les marges et les espaces ne peuvent pas être négatifs.',

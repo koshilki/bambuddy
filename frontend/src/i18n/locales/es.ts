@@ -2754,6 +2754,7 @@ export default {
       updateFailed: 'Error al actualizar la entrada',
       entryDeleted: 'Entrada eliminada',
       deleteFailed: 'Error al eliminar la entrada',
+      nameTaken: 'Ya existe una plantilla de etiquetas con este nombre.',
       resetSuccess: 'Catálogo restablecido a los valores predeterminados',
       resetFailed: 'Error al restablecer el catálogo',
       exported: 'Se exportaron {{count}} entradas',
@@ -5117,6 +5118,7 @@ export default {
         color: 'Por color',
       },
       scaleHint: 'Imprime las hojas al 100 % (tamaño real), no con «Ajustar a la página»: una página reducida se desplaza respecto a las etiquetas.',
+      pngTooLarge: 'La exportación PNG está limitada a {{maxPages}} páginas de hoja a {{dpi}} ppp, y esto son {{pages}}. Usa PDF, una resolución menor o menos bobinas.',
       custom: {
         option: 'Hoja personalizada…',
         savedGroup: 'Plantillas guardadas',
@@ -5154,7 +5156,8 @@ export default {
         deleteFailed: 'No se pudo eliminar la plantilla: {{msg}}',
         problems: {
           incomplete: 'Rellena cada campo con un número.',
-          tooSmall: 'Las etiquetas deben medir al menos {{min}} mm de ancho y de alto.',
+          tooSmall: 'Las etiquetas deben medir al menos {{minWidth}} mm de ancho y {{minHeight}} mm de alto, o el texto no cabe.',
+          tooLong: 'Los tamaños, márgenes y separaciones pueden medir como máximo {{max}} mm.',
           columns: 'Las columnas deben ser un número entero de 1 a {{max}}.',
           rows: 'Las filas deben ser un número entero de 1 a {{max}}.',
           negative: 'Los márgenes y las separaciones no pueden ser negativos.',

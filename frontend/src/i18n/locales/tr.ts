@@ -2755,6 +2755,7 @@ export default {
       updateFailed: 'Giriş güncellenemedi',
       entryDeleted: 'Giriş silindi',
       deleteFailed: 'Giriş silinemedi',
+      nameTaken: 'Bu adla bir etiket şablonu zaten var.',
       resetSuccess: 'Katalog varsayılana sıfırlandı',
       resetFailed: 'Katalog sıfırlanamadı',
       exported: '{{count}} giriş dışa aktarıldı',
@@ -5104,6 +5105,7 @@ export default {
         color: 'Renge göre',
       },
       scaleHint: 'Sayfaları "Sayfaya sığdır" ile değil, %100 (gerçek boyut) ölçekte yazdırın: küçültülen sayfa etiketlerden kayar.',
+      pngTooLarge: 'PNG dışa aktarma {{dpi}} dpi\'de {{maxPages}} sayfa ile sınırlıdır, bu ise {{pages}} sayfa. PDF, daha düşük çözünürlük veya daha az makara kullanın.',
       custom: {
         option: 'Özel sayfa…',
         savedGroup: 'Kayıtlı şablonlar',
@@ -5141,7 +5143,8 @@ export default {
         deleteFailed: 'Şablon silinemedi: {{msg}}',
         problems: {
           incomplete: 'Her alana bir sayı girin.',
-          tooSmall: 'Etiketlerin eni ve boyu en az {{min}} mm olmalıdır.',
+          tooSmall: 'Metnin sığması için etiketler en az {{minWidth}} mm genişliğinde ve {{minHeight}} mm yüksekliğinde olmalıdır.',
+          tooLong: 'Boyutlar, kenar boşlukları ve aralıklar en fazla {{max}} mm olabilir.',
           columns: 'Sütun sayısı 1 ile {{max}} arasında bir tam sayı olmalıdır.',
           rows: 'Satır sayısı 1 ile {{max}} arasında bir tam sayı olmalıdır.',
           negative: 'Kenar boşlukları ve aralıklar negatif olamaz.',

@@ -2771,6 +2771,7 @@ export default {
       updateFailed: 'Kunde inte uppdatera post',
       entryDeleted: 'Post borttagen',
       deleteFailed: 'Kunde inte ta bort post',
+      nameTaken: 'Det finns redan en etikettmall med det här namnet.',
       resetSuccess: 'Katalog återställd till standard',
       resetFailed: 'Kunde inte återställa katalog',
       exported: 'Exporterade {{count}} poster',
@@ -5150,6 +5151,7 @@ errors: {
         color: 'Efter färg',
       },
       scaleHint: 'Skriv ut ark i 100 % (faktisk storlek), inte "Anpassa till sidan": en förminskad sida glider iväg från etiketterna.',
+      pngTooLarge: 'PNG-export är begränsad till {{maxPages}} arksidor vid {{dpi}} dpi, och det här är {{pages}}. Använd PDF, lägre upplösning eller färre spolar.',
       custom: {
         option: 'Eget ark…',
         savedGroup: 'Sparade mallar',
@@ -5187,7 +5189,8 @@ errors: {
         deleteFailed: 'Kunde inte ta bort mallen: {{msg}}',
         problems: {
           incomplete: 'Fyll i varje fält med ett tal.',
-          tooSmall: 'Etiketter måste vara minst {{min}} mm breda och höga.',
+          tooSmall: 'Etiketter måste vara minst {{minWidth}} mm breda och {{minHeight}} mm höga, annars får texten inte plats.',
+          tooLong: 'Storlekar, marginaler och avstånd får vara högst {{max}} mm.',
           columns: 'Kolumner måste vara ett heltal från 1 till {{max}}.',
           rows: 'Rader måste vara ett heltal från 1 till {{max}}.',
           negative: 'Marginaler och avstånd kan inte vara negativa.',

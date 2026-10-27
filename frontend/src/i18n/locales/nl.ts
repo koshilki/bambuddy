@@ -2772,6 +2772,7 @@ export default {
       updateFailed: 'Item bijwerken mislukt',
       entryDeleted: 'Item verwijderd',
       deleteFailed: 'Item verwijderen mislukt',
+      nameTaken: 'Er bestaat al een labelsjabloon met deze naam.',
       resetSuccess: 'Catalogus teruggezet naar standaardwaarden',
       resetFailed: 'Catalogus resetten mislukt',
       exported: '{{count}} items geëxporteerd',
@@ -5151,6 +5152,7 @@ export default {
         color: 'Op kleur',
       },
       scaleHint: 'Druk vellen af op 100% (werkelijke grootte), niet met "Aanpassen aan pagina": een verkleinde pagina verschuift ten opzichte van de labels.',
+      pngTooLarge: 'PNG-export is beperkt tot {{maxPages}} vel-pagina’s bij {{dpi}} dpi, en dit zijn er {{pages}}. Gebruik PDF, een lagere resolutie of minder spoelen.',
       custom: {
         option: 'Eigen vel…',
         savedGroup: 'Opgeslagen sjablonen',
@@ -5188,7 +5190,8 @@ export default {
         deleteFailed: 'Kon het sjabloon niet verwijderen: {{msg}}',
         problems: {
           incomplete: 'Vul elk veld in met een getal.',
-          tooSmall: 'Labels moeten minstens {{min}} mm breed en hoog zijn.',
+          tooSmall: 'Labels moeten minstens {{minWidth}} mm breed en {{minHeight}} mm hoog zijn, anders past de tekst niet.',
+          tooLong: 'Maten, marges en tussenruimtes mogen hoogstens {{max}} mm zijn.',
           columns: 'Kolommen moeten een heel getal van 1 tot {{max}} zijn.',
           rows: 'Rijen moeten een heel getal van 1 tot {{max}} zijn.',
           negative: 'Marges en tussenruimtes kunnen niet negatief zijn.',

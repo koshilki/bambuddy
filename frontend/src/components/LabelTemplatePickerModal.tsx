@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Loader2, Printer, CheckSquare, Square, Search, Download } from 'lucide-react';
 import {
   api,
+  ApiError,
   DEFAULT_SPOOL_LABEL_FIELDS,
   SPOOL_LABEL_FIELDS,
   type LabelSheetLayout,
@@ -20,10 +21,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
   DEFAULT_LAYOUT,
+  MAX_PNG_SHEET_PAGES_X_DPI,
   draftFromLayout,
+  formatMm,
   isLayoutDraft,
   layoutProblem,
   parseDraft,
+  sheetPageCount,
   type LayoutDraft,
 } from '../utils/labelSheetLayout';
 import { getSwatchStyle, resolveSpoolColorName } from '../utils/colors';
@@ -318,7 +322,7 @@ export function LabelTemplatePickerModal({
   initialSelectedIds,
   spoolmanMode,
 }: LabelTemplatePickerModalProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // The spool filter below resolves colour names through the catalog; its
   // memo has to recompute when the catalog finishes loading (#3090).
   const colorCatalogVersion = useColorCatalogVersion();
@@ -346,11 +350,16 @@ export function LabelTemplatePickerModal({
   // The name typed for "Save as template"; null while that form is closed.
   const [newTemplateName, setNewTemplateName] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // When the dialog last opened: a remembered template is only given up on
+  // when a list fetched since then lacks it, not a cached one (#3296 review).
+  const openedAtRef = useRef(0);
 
   const savedQuery = useQuery({
     queryKey: SAVED_TEMPLATES_KEY,
     queryFn: api.getLabelTemplates,
     enabled: isOpen,
+    // Someone else may have saved or deleted one since the last open.
+    staleTime: 0,
   });
   const savedTemplates = useMemo(() => savedQuery.data ?? [], [savedQuery.data]);
 
@@ -366,6 +375,10 @@ export function LabelTemplatePickerModal({
       void queryClient.invalidateQueries({ queryKey: SAVED_TEMPLATES_KEY });
     },
     onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        showToast(t('inventory.labels.custom.nameTaken', 'A label template with this name already exists.'), 'error');
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       showToast(t('inventory.labels.custom.saveFailed', 'Could not save the template: {{msg}}', { msg }), 'error');
     },
@@ -390,6 +403,7 @@ export function LabelTemplatePickerModal({
   // label options come back as the user last left them.
   useEffect(() => {
     if (isOpen) {
+      openedAtRef.current = Date.now();
       const allowed = new Set(availableSpools.map((s) => s.id));
       setSelectedIds(new Set(initialSelectedIds.filter((id) => allowed.has(id))));
       setSearch('');
@@ -475,16 +489,24 @@ export function LabelTemplatePickerModal({
   const requestTemplate: SpoolLabelRequestTemplate = isCustomSheet ? 'custom' : (template as SpoolLabelTemplate);
   const layoutKey = activeLayout ? JSON.stringify(activeLayout) : '';
 
-  // A remembered saved template that has since been deleted: back to the default.
+  // A remembered saved template that has since been deleted: back to the
+  // default, and out of any edit of it, which would otherwise still send its
+  // layout with the built-in template (a 422). Only once a list fetched since
+  // the dialog opened says so.
+  const savedListIsFresh =
+    savedQuery.isSuccess && !savedQuery.isFetching && savedQuery.dataUpdatedAt >= openedAtRef.current;
   useEffect(() => {
-    if (!isOpen || !savedQuery.isSuccess || savedId === null) return;
+    if (!isOpen || !savedListIsFresh || savedId === null) return;
     if (savedTemplates.some((tpl) => tpl.id === savedId)) return;
+    setEditing(null);
+    setNewTemplateName(null);
+    setConfirmDelete(false);
     setPrefs((prev) => {
       const next = { ...prev, template: DEFAULT_PREFS.template };
       savePrefs(next);
       return next;
     });
-  }, [isOpen, savedQuery.isSuccess, savedTemplates, savedId]);
+  }, [isOpen, savedListIsFresh, savedTemplates, savedId]);
   // The preview shows the first spool that will print, in print order.
   const previewSpoolId = sortedSpools.find((s) => selectedIds.has(s.id))?.id ?? null;
 
@@ -556,7 +578,13 @@ export function LabelTemplatePickerModal({
     sheetCapacity === undefined ||
     (Number.isInteger(startingPosition) && startingPosition >= 1 && startingPosition <= sheetCapacity);
   const templateOption = TEMPLATE_OPTIONS.find((o) => o.value === template) ?? TEMPLATE_OPTIONS[0];
-  const canPrint = !noSelection && !pending && startingPositionIsValid && sheetReady;
+  // PNG of whole sheet pages is capped at pages × dpi, as on the server.
+  const pngSheetPages =
+    prefs.format === 'png' && sheetCapacity !== undefined && startingPositionIsValid
+      ? sheetPageCount(sheetCapacity, selectedCount, startingPosition)
+      : 0;
+  const pngTooLarge = pngSheetPages * prefs.dpi > MAX_PNG_SHEET_PAGES_X_DPI;
+  const canPrint = !noSelection && !pending && startingPositionIsValid && sheetReady && !pngTooLarge;
 
   function updatePrefs(change: Partial<LabelPrefs>) {
     setPrefs((prev) => {
@@ -581,8 +609,8 @@ export function LabelTemplatePickerModal({
           layout.page === 'a4'
             ? t('inventory.labels.custom.pageShortA4', 'A4')
             : t('inventory.labels.custom.pageShortLetter', 'Letter'),
-        width: layout.label_w_mm,
-        height: layout.label_h_mm,
+        width: formatMm(layout.label_w_mm, i18n.language),
+        height: formatMm(layout.label_h_mm, i18n.language),
         capacity: layout.cols * layout.rows,
         cols: layout.cols,
         rows: layout.rows,
@@ -591,8 +619,9 @@ export function LabelTemplatePickerModal({
   }
 
   function saveNewTemplate(name: string, layout: LabelSheetLayout) {
-    // The new template keeps the lines chosen for the sheet it was made from.
-    const sourceFields = fields;
+    // The new template keeps the lines chosen for the sheet it was made from,
+    // as they are when the save completes: they can be ticked meanwhile.
+    const source = template;
     saveMutation.mutate(
       { name: name.trim(), layout },
       {
@@ -600,7 +629,15 @@ export function LabelTemplatePickerModal({
           setEditing(null);
           setNewTemplateName(null);
           const choice = savedChoice(saved.id);
-          updatePrefs({ template: choice, fields: { ...prefs.fields, [choice]: sourceFields } });
+          setPrefs((prev) => {
+            const next = {
+              ...prev,
+              template: choice,
+              fields: { ...prev.fields, [choice]: fieldsFor(prev, source) },
+            };
+            savePrefs(next);
+            return next;
+          });
           showToast(t('inventory.labels.custom.saved', 'Template "{{name}}" saved', { name: saved.name }), 'success');
         },
       },
@@ -1240,6 +1277,15 @@ export function LabelTemplatePickerModal({
                   {t(
                     'inventory.labels.pngHint',
                     'For label printer software that takes images. Match your printer\'s resolution; several labels come as a ZIP.',
+                  )}
+                </p>
+              )}
+              {pngTooLarge && (
+                <p data-testid="label-png-too-large" className="text-xs text-red-400">
+                  {t(
+                    'inventory.labels.pngTooLarge',
+                    'PNG export is limited to {{maxPages}} sheet pages at {{dpi}} dpi, and this is {{pages}}. Use PDF, a lower resolution or fewer spools.',
+                    { maxPages: Math.floor(MAX_PNG_SHEET_PAGES_X_DPI / prefs.dpi), dpi: prefs.dpi, pages: pngSheetPages },
                   )}
                 </p>
               )}

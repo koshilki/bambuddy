@@ -1,14 +1,31 @@
 """Sheet layouts for custom label sheets, and the saved templates that hold
 them (#3296)."""
 
+import unicodedata
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.services.label_renderer import MAX_COLS, MAX_ROWS, MIN_LABEL_MM, PageSize, SheetLayout
+from backend.app.services.label_renderer import (
+    MAX_COLS,
+    MAX_LENGTH_MM,
+    MAX_ROWS,
+    MIN_LABEL_H_MM,
+    MIN_LABEL_W_MM,
+    PageSize,
+    SheetLayout,
+)
 
-# Longer than any real page side; the fit check against the page does the rest.
-_MAX_LENGTH_MM = 300.0
+# Each character can casefold to at most three ("ﬃ" -> "ffi"), so a 100-character
+# name always has a key that fits the 300-character column.
+NAME_MAX_LENGTH = 100
+NAME_KEY_MAX_LENGTH = 300
+
+
+def label_template_name_key(name: str) -> str:
+    """What makes two names the same template: case and Unicode composition
+    ignored, so "Café" typed with a combining accent matches the composed one."""
+    return unicodedata.normalize("NFC", name).casefold()
 
 
 class SheetLayoutSpec(BaseModel):
@@ -17,14 +34,14 @@ class SheetLayoutSpec(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
     page: PageSize
-    label_w_mm: float = Field(ge=MIN_LABEL_MM, le=_MAX_LENGTH_MM)
-    label_h_mm: float = Field(ge=MIN_LABEL_MM, le=_MAX_LENGTH_MM)
+    label_w_mm: float = Field(ge=MIN_LABEL_W_MM, le=MAX_LENGTH_MM)
+    label_h_mm: float = Field(ge=MIN_LABEL_H_MM, le=MAX_LENGTH_MM)
     cols: int = Field(ge=1, le=MAX_COLS)
     rows: int = Field(ge=1, le=MAX_ROWS)
-    top_mm: float = Field(ge=0, le=_MAX_LENGTH_MM)
-    left_mm: float = Field(ge=0, le=_MAX_LENGTH_MM)
-    col_gap_mm: float = Field(default=0.0, ge=0, le=_MAX_LENGTH_MM)
-    row_gap_mm: float = Field(default=0.0, ge=0, le=_MAX_LENGTH_MM)
+    top_mm: float = Field(ge=0, le=MAX_LENGTH_MM)
+    left_mm: float = Field(ge=0, le=MAX_LENGTH_MM)
+    col_gap_mm: float = Field(default=0.0, ge=0, le=MAX_LENGTH_MM)
+    row_gap_mm: float = Field(default=0.0, ge=0, le=MAX_LENGTH_MM)
 
     @model_validator(mode="after")
     def fits_on_page(self) -> "SheetLayoutSpec":
@@ -55,16 +72,23 @@ class SheetLayoutResponse(BaseModel):
 class LabelTemplateIn(BaseModel):
     """Create or replace a saved template: a name and the whole layout."""
 
-    name: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=NAME_MAX_LENGTH)
     layout: SheetLayoutSpec
 
     @field_validator("name")
     @classmethod
-    def strip_name(cls, v: str) -> str:
-        v = v.strip()
+    def normalize_name(cls, v: str) -> str:
+        v = unicodedata.normalize("NFC", v.strip())
         if not v:
             raise ValueError("name must not be empty")
+        # NFC can (rarely) lengthen a name, so both columns are checked again.
+        if len(v) > NAME_MAX_LENGTH or len(label_template_name_key(v)) > NAME_KEY_MAX_LENGTH:
+            raise ValueError("name is too long")
         return v
+
+    @property
+    def name_key(self) -> str:
+        return label_template_name_key(self.name)
 
 
 class LabelTemplateResponse(BaseModel):

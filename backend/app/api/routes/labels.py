@@ -50,6 +50,7 @@ from backend.app.services.label_renderer import (
     pdf_to_pngs,
     render_label_preview_pdf,
     render_labels,
+    sheet_page_count,
 )
 from backend.app.services.spoolman import get_spoolman_client
 from backend.app.utils.http import build_content_disposition
@@ -61,6 +62,14 @@ router = APIRouter(tags=["labels"])
 # Cap how many labels can be requested in one go. Sane upper bound for the
 # largest realistic batch (an Avery sheet at 30/page × ~10 pages).
 MAX_LABELS_PER_REQUEST = 500
+
+# PNG export of sheets: pages × dpi. A sheet page is a whole A4 or Letter
+# page, rasterised under the process-wide PDFium lock that PDF thumbnails also
+# wait on, so a custom one-label-per-page sheet of 500 spools at 600 dpi would
+# hold it for minutes. 15 000 is 25 pages at 600 dpi, 50 at 300 and 73 at 203;
+# the built-in sheets need at most 24 pages (500 spools on an L7160), so they
+# always fit. Mirrored in the dialog (labelSheetLayout.ts).
+MAX_PNG_SHEET_PAGES_X_DPI = 15_000
 
 # Preview resolution. High enough that the browser's downscale stays sharp on
 # a HiDPI screen; a label is a few centimetres, so the PNG stays small.
@@ -95,6 +104,9 @@ class LabelOptions(BaseModel):
     def resolved_template(self) -> Template:
         if self.layout is not None:
             return self.layout.to_layout()
+        if self.template == "custom":
+            # layout_only_for_custom refuses this, so a validated request never gets here.
+            raise ValueError('layout is required for template "custom"')
         return self.template
 
 
@@ -117,6 +129,14 @@ class LabelRequest(LabelOptions):
             return self
         if self.starting_position > capacity:
             raise ValueError(f"starting_position must be between 1 and {capacity} for template {self.template}")
+        if self.format == "png":
+            pages = sheet_page_count(self.resolved_template(), len(self.spool_ids), self.starting_position) or 0
+            if pages * self.dpi > MAX_PNG_SHEET_PAGES_X_DPI:
+                max_pages = MAX_PNG_SHEET_PAGES_X_DPI // self.dpi
+                raise ValueError(
+                    f"PNG export is limited to {max_pages} sheet pages at {self.dpi} dpi, and this is {pages}. "
+                    "Use PDF, a lower resolution or fewer spools."
+                )
         return self
 
 

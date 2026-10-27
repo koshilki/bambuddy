@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { focusManager } from '@tanstack/react-query';
 import { render } from '../utils';
 import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
 import { LabelTemplatePickerModal } from '../../components/LabelTemplatePickerModal';
-import { api, setAuthToken } from '../../api/client';
+import { api, ApiError, setAuthToken } from '../../api/client';
 
 vi.mock('../../api/client', async (importOriginal) => ({
   // The field lists are real exports the modal renders from.
@@ -1015,6 +1016,135 @@ describe('custom sheets and saved templates (#3296)', () => {
 
     await waitFor(() => expect(api.getLabelTemplates).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('ams_holder_74x33'));
+  });
+
+  it('refuses a label too small to carry its text', () => {
+    openModal();
+    pickTemplate('custom');
+    typeLayout({ ...LAYOUT_3490, label_w_mm: '39', cols: '1' });
+
+    expect(screen.getByTestId('label-sheet-problem')).toHaveTextContent('at least 40 mm wide and 20 mm tall');
+    expect(screen.getByTestId('label-print-button')).toBeDisabled();
+  });
+
+  it('measures US Letter exactly as the server does', () => {
+    openModal();
+    pickTemplate('custom');
+    // Two 107.95 mm labels fill Letter's 215.9 mm; a 0.02 mm gap does not fit.
+    typeLayout({ ...LAYOUT_3490, page: 'letter', label_w_mm: '107.95', cols: '2', rows: '1', top_mm: '0' });
+    expect(screen.queryByTestId('label-sheet-problem')).not.toBeInTheDocument();
+
+    typeLayout({ col_gap_mm: '0.02' });
+    expect(screen.getByTestId('label-sheet-problem')).toHaveTextContent('215.92 mm wide');
+  });
+
+  it('caps every length as the server does', () => {
+    openModal();
+    pickTemplate('custom');
+    typeLayout({ ...LAYOUT_3490, cols: '1', rows: '1', col_gap_mm: '301' });
+
+    expect(screen.getByTestId('label-sheet-problem')).toHaveTextContent('at most 300 mm');
+  });
+
+  it('links each field to the explanation of what is wrong', () => {
+    openModal();
+    pickTemplate('custom');
+    typeLayout({ ...LAYOUT_3490, left_mm: '1' });
+
+    const problem = screen.getByTestId('label-sheet-problem');
+    expect(screen.getByTestId('label-sheet-left_mm').getAttribute('aria-describedby')).toContain(problem.id);
+    expect(screen.getByTestId('label-sheet-left_mm')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('says in the reader\'s language when a name is already taken', async () => {
+    vi.mocked(api.createLabelTemplate).mockRejectedValue(
+      new ApiError('A label template with this name already exists', 409),
+    );
+    openModal();
+    pickTemplate('custom');
+    typeLayout(LAYOUT_3490);
+    fireEvent.click(screen.getByTestId('label-template-save-as'));
+    fireEvent.change(screen.getByTestId('label-template-name'), { target: { value: 'Avery 3490' } });
+    fireEvent.click(screen.getByTestId('label-template-save'));
+
+    expect(await screen.findByText('A label template with this name already exists.')).toBeInTheDocument();
+    expect(screen.queryByText(/Could not save the template/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the lines ticked while the save was on its way', async () => {
+    let finishSave: (value: typeof SAVED) => void = () => {};
+    vi.mocked(api.createLabelTemplate).mockReturnValue(new Promise((resolve) => (finishSave = resolve)));
+    openModal();
+    pickTemplate('custom');
+    typeLayout(LAYOUT_3490);
+    fireEvent.click(screen.getByTestId('label-template-save-as'));
+    fireEvent.change(screen.getByTestId('label-template-name'), { target: { value: 'Avery 3490' } });
+    fireEvent.click(screen.getByTestId('label-template-save'));
+    // Ticked after clicking Save, before the server answered.
+    fireEvent.click(screen.getByTestId('label-field-weight'));
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([SAVED]);
+    await act(async () => finishSave(SAVED));
+
+    await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('saved:5'));
+    expect(screen.getByTestId('label-field-weight')).toBeChecked();
+  });
+
+  it('refuses a PNG of more sheet pages than the resolution allows', () => {
+    const many = Array.from({ length: 26 }, (_, i) => ({ ...SPOOLS[0], id: i + 1 }));
+    render(
+      <LabelTemplatePickerModal
+        isOpen
+        onClose={vi.fn()}
+        availableSpools={many}
+        initialSelectedIds={many.map((s) => s.id)}
+        spoolmanMode={false}
+      />,
+    );
+    pickTemplate('custom');
+    typeLayout({ ...LAYOUT_3490, cols: '1', rows: '1' });
+    fireEvent.click(screen.getByTestId('label-format-png'));
+    fireEvent.change(screen.getByTestId('label-dpi-select'), { target: { value: '600' } });
+
+    // 26 one-label pages at 600 dpi is over the 25 allowed.
+    expect(screen.getByTestId('label-png-too-large')).toHaveTextContent('25 sheet pages at 600 dpi, and this is 26');
+    expect(screen.getByTestId('label-print-button')).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId('label-dpi-select'), { target: { value: '300' } });
+    expect(screen.queryByTestId('label-png-too-large')).not.toBeInTheDocument();
+    expect(screen.getByTestId('label-print-button')).toBeEnabled();
+  });
+
+  it('leaves an edit of a template deleted elsewhere, once a fresh list says so', async () => {
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([SAVED]);
+    openModal();
+    await screen.findByRole('option', { name: 'Avery 3490' });
+    pickTemplate('saved:5');
+    fireEvent.click(screen.getByTestId('label-template-edit'));
+    expect(screen.getByTestId('label-sheet-editor')).toBeInTheDocument();
+
+    // Someone else deletes it; the list is fetched again when the window regains focus.
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([]);
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+
+    await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('ams_holder_74x33'));
+    expect(screen.queryByTestId('label-sheet-editor')).not.toBeInTheDocument();
+    act(() => focusManager.setFocused(undefined));
+  });
+
+  it('keeps a remembered template while a cached list is being refreshed', async () => {
+    const store = new Map([['bambuddy-label-print-options', JSON.stringify({ template: 'saved:5' })]]);
+    vi.mocked(localStorage.getItem).mockImplementation((key) => store.get(key) ?? null);
+    let finish: (value: (typeof SAVED)[]) => void = () => {};
+    vi.mocked(api.getLabelTemplates).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    openModal();
+
+    await waitFor(() => expect(api.getLabelTemplates).toHaveBeenCalled());
+    expect(store.get('bambuddy-label-print-options')).toContain('saved:5');
+    await act(async () => finish([SAVED]));
+    await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('saved:5'));
   });
 
   describe('for a user who may print but not edit inventory', () => {

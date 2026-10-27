@@ -463,15 +463,85 @@ def test_inch_based_sheet_within_rounding_still_fits():
         ({"left_mm": 1.0}, "wide"),
         ({"rows": 9}, "tall"),
         ({"row_gap_mm": 2.0}, "tall"),
-        ({"label_h_mm": 9.9}, "at least"),
+        ({"label_h_mm": 19.9}, "at least"),
+        ({"label_w_mm": 39.9, "cols": 1}, "at least"),
+        ({"col_gap_mm": 300.5, "cols": 1}, "at most"),
         ({"cols": 0}, "Columns"),
-        ({"rows": 41, "label_h_mm": 10.0, "top_mm": 0.0}, "Rows"),
+        ({"rows": 41, "label_h_mm": 20.0, "top_mm": 0.0}, "Rows"),
         ({"col_gap_mm": -0.5, "cols": 2}, "negative"),
         ({"page": "a3"}, "page size"),
     ],
 )
 def test_layout_problems_are_named(overrides, message):
     assert message in _layout(**overrides).problem()
+
+
+def test_letter_width_matches_the_dialog_to_the_hundredth():
+    # 215.9 mm is Letter's width on both sides of the API; 215.91 is not.
+    fits = SheetLayout("letter", 107.95, 25.4, 2, 1, top_mm=0.0, left_mm=0.0)
+    over = SheetLayout("letter", 107.95, 25.4, 2, 1, top_mm=0.0, left_mm=0.0, col_gap_mm=0.02)
+    assert fits.problem() is None
+    assert "wide" in over.problem()
+
+
+@pytest.mark.parametrize("label_h_mm", [20.0, 22.0, 25.0, 30.0, 40.0, 60.0, 100.0, 280.0])
+def test_the_smallest_label_has_room_for_a_full_size_spool_id(label_h_mm):
+    """At the minimum width, a colour label with a QR keeps a text column wide
+    enough for a four-digit spool ID at its full 16 pt — at any height, since
+    the QR grows with the label. At the minimum height the roomy layout is used."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    from backend.app.services.label_renderer import MIN_LABEL_H_MM, MIN_LABEL_W_MM, _roomy_qr_size
+
+    pad = 1.2 * mm
+    inner_w = MIN_LABEL_W_MM * mm - 2 * pad
+    inner_h = label_h_mm * mm - 2 * pad
+    swatch_w = min(inner_w * 0.18, inner_h, 16 * mm)
+    qr = _roomy_qr_size(inner_w, inner_h)
+    text_w = inner_w - swatch_w - qr - 2 * 1.5 * mm
+    assert text_w >= stringWidth("#9999", "Helvetica-Bold", 16)
+    assert MIN_LABEL_H_MM >= 20.0  # the tight layout starts below 20 mm
+
+
+def test_the_smallest_label_prints_the_spool_id():
+    from backend.app.services.label_renderer import MIN_LABEL_H_MM, MIN_LABEL_W_MM
+
+    layout = _layout(label_w_mm=MIN_LABEL_W_MM, label_h_mm=MIN_LABEL_H_MM, cols=1, rows=1)
+    pdf = _render_uncompressed_layout(layout, [_sample(9999)])
+    assert b"(#9999)" in pdf
+
+
+def _render_uncompressed_layout(layout, data):
+    import io as _io
+
+    from reportlab.pdfgen import canvas as _rl_canvas
+
+    from backend.app.services.label_renderer import _draw_label  # noqa: PLC0415
+
+    buf = _io.BytesIO()
+    w, h = layout.label_w_mm * mm, layout.label_h_mm * mm
+    c = _rl_canvas.Canvas(buf, pagesize=(w, h), pageCompression=0)
+    for d in data:
+        _draw_label(c, 0, 0, w, h, d)
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("label_count", "starting_position", "pages"),
+    [(24, 1, 1), (25, 1, 2), (1, 24, 1), (2, 24, 2), (48, 1, 2)],
+)
+def test_sheet_page_count(label_count, starting_position, pages):
+    from backend.app.services.label_renderer import sheet_page_count
+
+    assert sheet_page_count(_layout(), label_count, starting_position) == pages
+
+
+def test_roll_labels_have_no_sheet_page_count():
+    from backend.app.services.label_renderer import sheet_page_count
+
+    assert sheet_page_count("box_40x30", 10) is None
 
 
 def test_render_refuses_a_layout_that_does_not_fit():

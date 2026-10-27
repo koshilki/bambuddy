@@ -5,15 +5,32 @@
 
 import type { LabelPageSize, LabelSheetLayout } from '../api/client';
 
-// Mirrors of the renderer's limits.
+// Mirrors of the renderer's limits (label_renderer.py), number for number, so
+// the dialog and the server never disagree about a layout.
 export const PAGE_SIZES_MM: Record<LabelPageSize, [number, number]> = {
   a4: [210, 297],
   letter: [215.9, 279.4],
 };
-export const MIN_LABEL_MM = 10;
+// What the label layout can fill: the full layout from 20 mm tall, and room
+// for a four-digit spool ID beside the swatch and QR from 40 mm wide.
+export const MIN_LABEL_W_MM = 40;
+export const MIN_LABEL_H_MM = 20;
+export const MAX_LENGTH_MM = 300;
 export const MAX_COLS = 20;
 export const MAX_ROWS = 40;
 const FIT_TOLERANCE_MM = 0.01;
+// PNG export of sheets is capped at pages × dpi (MAX_PNG_SHEET_PAGES_X_DPI in labels.py).
+export const MAX_PNG_SHEET_PAGES_X_DPI = 15000;
+
+/** Pages ``labelCount`` labels take on a sheet of ``capacity``, from ``startingPosition``. */
+export function sheetPageCount(capacity: number, labelCount: number, startingPosition = 1): number {
+  return Math.ceil((startingPosition - 1 + labelCount) / capacity);
+}
+
+/** A length in millimetres, written the way the reader's language writes numbers. */
+export function formatMm(mm: number, language: string): string {
+  return new Intl.NumberFormat(language, { maximumFractionDigits: 2 }).format(mm);
+}
 
 export const LAYOUT_NUMBER_FIELDS = [
   'label_w_mm',
@@ -72,7 +89,8 @@ export function isLayoutDraft(value: unknown): value is LayoutDraft {
 export interface LayoutProblem {
   key: string;
   fallback: string;
-  params?: Record<string, string | number>;
+  /** Lengths in mm and counts; the dialog formats them for the reader's language. */
+  params?: Record<string, number>;
 }
 
 /** Width and height the grid takes up, margins included. */
@@ -89,11 +107,20 @@ export function layoutProblem(draft: LayoutDraft): LayoutProblem | null {
   if (!layout) {
     return { key: 'incomplete', fallback: 'Fill in every field with a number.' };
   }
-  if (layout.label_w_mm < MIN_LABEL_MM || layout.label_h_mm < MIN_LABEL_MM) {
+  // Same order as SheetLayout.problem(), so both name the same problem first.
+  if (layout.label_w_mm < MIN_LABEL_W_MM || layout.label_h_mm < MIN_LABEL_H_MM) {
     return {
       key: 'tooSmall',
-      fallback: 'Labels must be at least {{min}} mm wide and tall.',
-      params: { min: MIN_LABEL_MM },
+      fallback: 'Labels must be at least {{minWidth}} mm wide and {{minHeight}} mm tall, or the text doesn’t fit.',
+      params: { minWidth: MIN_LABEL_W_MM, minHeight: MIN_LABEL_H_MM },
+    };
+  }
+  const lengths = [layout.label_w_mm, layout.label_h_mm, layout.top_mm, layout.left_mm, layout.col_gap_mm, layout.row_gap_mm];
+  if (Math.max(...lengths) > MAX_LENGTH_MM) {
+    return {
+      key: 'tooLong',
+      fallback: 'Sizes, margins and gaps can be at most {{max}} mm.',
+      params: { max: MAX_LENGTH_MM },
     };
   }
   if (!Number.isInteger(layout.cols) || layout.cols < 1 || layout.cols > MAX_COLS) {
@@ -111,19 +138,15 @@ export function layoutProblem(draft: LayoutDraft): LayoutProblem | null {
     return {
       key: 'tooWide',
       fallback: 'The labels are {{size}} mm wide with the left margin, but the page is {{page}} mm.',
-      params: { size: round(gridW), page: round(pageW) },
+      params: { size: gridW, page: pageW },
     };
   }
   if (gridH > pageH + FIT_TOLERANCE_MM) {
     return {
       key: 'tooTall',
       fallback: 'The labels are {{size}} mm tall with the top margin, but the page is {{page}} mm.',
-      params: { size: round(gridH), page: round(pageH) },
+      params: { size: gridH, page: pageH },
     };
   }
   return null;
-}
-
-function round(mm: number): number {
-  return Math.round(mm * 100) / 100;
 }

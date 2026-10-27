@@ -2707,6 +2707,7 @@ export default {
       updateFailed: 'Impossibile aggiornare la voce',
       entryDeleted: 'Voce eliminata',
       deleteFailed: 'Impossibile eliminare la voce',
+      nameTaken: 'Esiste già un modello di etichette con questo nome.',
       resetSuccess: 'Catalogo ripristinato ai valori predefiniti',
       resetFailed: 'Impossibile ripristinare il catalogo',
       exported: '{{count}} voci esportate',
@@ -5102,6 +5103,7 @@ export default {
         color: 'Per colore',
       },
       scaleHint: 'Stampa i fogli al 100% (dimensioni reali), non con «Adatta alla pagina»: una pagina rimpicciolita si sposta rispetto alle etichette.',
+      pngTooLarge: 'L’esportazione PNG è limitata a {{maxPages}} pagine di foglio a {{dpi}} dpi, e queste sono {{pages}}. Usa il PDF, una risoluzione più bassa o meno bobine.',
       custom: {
         option: 'Foglio personalizzato…',
         savedGroup: 'Modelli salvati',
@@ -5139,7 +5141,8 @@ export default {
         deleteFailed: 'Impossibile eliminare il modello: {{msg}}',
         problems: {
           incomplete: 'Compila ogni campo con un numero.',
-          tooSmall: 'Le etichette devono essere larghe e alte almeno {{min}} mm.',
+          tooSmall: 'Le etichette devono essere larghe almeno {{minWidth}} mm e alte almeno {{minHeight}} mm, altrimenti il testo non ci sta.',
+          tooLong: 'Dimensioni, margini e spazi possono essere al massimo di {{max}} mm.',
           columns: 'Le colonne devono essere un numero intero da 1 a {{max}}.',
           rows: 'Le righe devono essere un numero intero da 1 a {{max}}.',
           negative: 'Margini e spazi non possono essere negativi.',

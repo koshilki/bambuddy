@@ -492,10 +492,20 @@ def _draw_label_roomy(
 PageSize = Literal["a4", "letter"]
 
 _PAGE_SIZES: dict[str, tuple[float, float]] = {"a4": A4, "letter": letter}
+# The same pages in millimetres, for the fit check. Written out rather than
+# derived from the points above so the dialog (labelSheetLayout.ts) can use the
+# very same numbers: letter[0] / mm is 215.8999…, not 215.9.
+PAGE_SIZES_MM: dict[str, tuple[float, float]] = {"a4": (210.0, 297.0), "letter": (215.9, 279.4)}
 
-# Bounds on a sheet layout (#3296). Generous enough for any real label sheet,
-# tight enough that a typo can't ask for a 10 000-label page.
-MIN_LABEL_MM = 10.0
+# Bounds on a sheet layout (#3296). The minimum label is what the roomy layout
+# can fill: from 20 mm tall a label leaves the tight layout (which drops the QR
+# and most lines), and from 40 mm wide the text column beside the colour swatch
+# and the QR holds a four-digit spool ID at full size, at any height — the same
+# width as the smallest built-in label. The rest stops a typo asking for a
+# 10 000-label page.
+MIN_LABEL_W_MM = 40.0
+MIN_LABEL_H_MM = 20.0
+MAX_LENGTH_MM = 300.0
 MAX_COLS = 20
 MAX_ROWS = 40
 # Rounding slack when checking that the grid fits the page: a sheet measured in
@@ -529,17 +539,20 @@ class SheetLayout:
 
     def problem(self) -> str | None:
         """Why this layout can't be printed, or ``None`` when it can."""
-        if self.page not in _PAGE_SIZES:
+        if self.page not in PAGE_SIZES_MM:
             return f"Unknown page size: {self.page!r}"
-        if self.label_w_mm < MIN_LABEL_MM or self.label_h_mm < MIN_LABEL_MM:
-            return f"Labels must be at least {MIN_LABEL_MM:g} mm wide and tall"
+        if self.label_w_mm < MIN_LABEL_W_MM or self.label_h_mm < MIN_LABEL_H_MM:
+            return f"Labels must be at least {MIN_LABEL_W_MM:g} mm wide and {MIN_LABEL_H_MM:g} mm tall"
+        lengths = (self.label_w_mm, self.label_h_mm, self.top_mm, self.left_mm, self.col_gap_mm, self.row_gap_mm)
+        if max(lengths) > MAX_LENGTH_MM:
+            return f"Sizes, margins and gaps can be at most {MAX_LENGTH_MM:g} mm"
         if not 1 <= self.cols <= MAX_COLS:
             return f"Columns must be between 1 and {MAX_COLS}"
         if not 1 <= self.rows <= MAX_ROWS:
             return f"Rows must be between 1 and {MAX_ROWS}"
         if min(self.top_mm, self.left_mm, self.col_gap_mm, self.row_gap_mm) < 0:
             return "Margins and gaps must not be negative"
-        page_w_mm, page_h_mm = (v / mm for v in self.page_size)
+        page_w_mm, page_h_mm = PAGE_SIZES_MM[self.page]
         grid_w = self.left_mm + self.cols * self.label_w_mm + (self.cols - 1) * self.col_gap_mm
         grid_h = self.top_mm + self.rows * self.label_h_mm + (self.rows - 1) * self.row_gap_mm
         if grid_w > page_w_mm + _FIT_TOLERANCE_MM:
@@ -599,8 +612,10 @@ def _render_single_label_pdf(
 
 def label_size_mm(template: Template) -> tuple[float, float]:
     """(width, height) of one label of ``template`` — a sheet's cell size."""
-    layout = _sheet_layout(template)
-    if layout is not None:
+    if isinstance(template, SheetLayout):
+        return template.label_w_mm, template.label_h_mm
+    if template in _SHEET_TEMPLATES:
+        layout = _SHEET_TEMPLATES[template]
         return layout.label_w_mm, layout.label_h_mm
     if template in _SINGLE_LABEL_SIZES_MM:
         return _SINGLE_LABEL_SIZES_MM[template]
@@ -611,6 +626,15 @@ def get_sheet_capacity(template: Template) -> int | None:
     """Return the number of slots on a sheet template, or ``None`` for roll labels."""
     layout = _sheet_layout(template)
     return None if layout is None else layout.capacity
+
+
+def sheet_page_count(template: Template, label_count: int, starting_position: int = 1) -> int | None:
+    """Pages a sheet template prints ``label_count`` labels on, or ``None`` for
+    roll labels (one label-sized page each)."""
+    capacity = get_sheet_capacity(template)
+    if capacity is None:
+        return None
+    return -(-(starting_position - 1 + label_count) // capacity)
 
 
 def _render_sheet_pdf(
@@ -687,9 +711,10 @@ def render_labels(
 
     ``fields`` names the lines to print (#2981); see ``ALL_LABEL_FIELDS``.
     """
-    layout = _sheet_layout(template)
-    if layout is not None:
-        return _render_sheet_pdf(layout, _template_title(template), data_list, monochrome, starting_position, fields)
+    if isinstance(template, SheetLayout):
+        return _render_sheet_pdf(template, _template_title(template), data_list, monochrome, starting_position, fields)
+    if template in _SHEET_TEMPLATES:
+        return _render_sheet_pdf(_SHEET_TEMPLATES[template], template, data_list, monochrome, starting_position, fields)
     if template in _SINGLE_LABEL_SIZES_MM:
         if starting_position != 1:
             raise ValueError("Starting position is only supported for sheet label templates")
@@ -755,6 +780,7 @@ __all__ = [
     "LabelData",
     "LabelField",
     "PageSize",
+    "sheet_page_count",
     "SheetLayout",
     "Template",
     "TemplateName",
