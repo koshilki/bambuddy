@@ -2772,7 +2772,6 @@ export default {
       updateFailed: 'Item bijwerken mislukt',
       entryDeleted: 'Item verwijderd',
       deleteFailed: 'Item verwijderen mislukt',
-      nameTaken: 'Er bestaat al een labelsjabloon met deze naam.',
       resetSuccess: 'Catalogus teruggezet naar standaardwaarden',
       resetFailed: 'Catalogus resetten mislukt',
       exported: '{{count}} items geëxporteerd',
@@ -5198,6 +5197,7 @@ export default {
         deleted: 'Sjabloon "{{name}}" verwijderd',
         saveFailed: 'Kon het sjabloon niet opslaan: {{msg}}',
         deleteFailed: 'Kon het sjabloon niet verwijderen: {{msg}}',
+        nameTaken: 'Er bestaat al een labelsjabloon met deze naam.',
         problems: {
           incomplete: 'Vul elk veld in met een getal.',
           tooSmall: 'Labels moeten minstens {{minWidth}} mm breed en {{minHeight}} mm hoog zijn, anders past de tekst niet.',

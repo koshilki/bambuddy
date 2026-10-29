@@ -2752,7 +2752,6 @@ export default {
       updateFailed: '更新条目失败',
       entryDeleted: '条目已删除',
       deleteFailed: '删除条目失败',
-      nameTaken: '已有同名的标签模板。',
       resetSuccess: '目录已重置为默认值',
       resetFailed: '重置目录失败',
       exported: '已导出 {{count}} 条',
@@ -5149,6 +5148,7 @@ export default {
         deleted: '模板“{{name}}”已删除',
         saveFailed: '无法保存模板：{{msg}}',
         deleteFailed: '无法删除模板：{{msg}}',
+        nameTaken: '已有同名的标签模板。',
         problems: {
           incomplete: '请在每一栏填入数字。',
           tooSmall: '标签宽度至少 {{minWidth}} 毫米、高度至少 {{minHeight}} 毫米，否则放不下文字。',

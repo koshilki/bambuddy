@@ -2751,7 +2751,6 @@ export default {
       updateFailed: 'エントリの更新に失敗しました',
       entryDeleted: 'エントリを削除しました',
       deleteFailed: 'エントリの削除に失敗しました',
-      nameTaken: 'この名前のラベルテンプレートは既にあります。',
       resetSuccess: 'カタログをデフォルトにリセットしました',
       resetFailed: 'カタログのリセットに失敗しました',
       exported: '{{count}}件のエントリをエクスポートしました',
@@ -5162,6 +5161,7 @@ export default {
         deleted: 'テンプレート「{{name}}」を削除しました',
         saveFailed: 'テンプレートを保存できませんでした：{{msg}}',
         deleteFailed: 'テンプレートを削除できませんでした：{{msg}}',
+        nameTaken: 'この名前のラベルテンプレートは既にあります。',
         problems: {
           incomplete: 'すべての項目に数値を入力してください。',
           tooSmall: 'ラベルは幅{{minWidth}} mm以上、高さ{{minHeight}} mm以上にしてください。小さいと文字が入りません。',

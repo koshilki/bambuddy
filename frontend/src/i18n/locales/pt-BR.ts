@@ -2707,7 +2707,6 @@ export default {
       updateFailed: 'Falha ao atualizar entrada',
       entryDeleted: 'Entrada excluída',
       deleteFailed: 'Falha ao excluir entrada',
-      nameTaken: 'Já existe um modelo de etiquetas com este nome.',
       resetSuccess: 'Catálogo redefinido para os padrões',
       resetFailed: 'Falha ao redefinir catálogo',
       exported: 'Exportadas {{count}} entradas',
@@ -5149,6 +5148,7 @@ export default {
         deleted: 'Modelo "{{name}}" excluído',
         saveFailed: 'Não foi possível salvar o modelo: {{msg}}',
         deleteFailed: 'Não foi possível excluir o modelo: {{msg}}',
+        nameTaken: 'Já existe um modelo de etiquetas com este nome.',
         problems: {
           incomplete: 'Preencha cada campo com um número.',
           tooSmall: 'As etiquetas devem ter pelo menos {{minWidth}} mm de largura e {{minHeight}} mm de altura, ou o texto não cabe.',

@@ -1135,16 +1135,33 @@ describe('custom sheets and saved templates (#3296)', () => {
   });
 
   it('keeps a remembered template while a cached list is being refreshed', async () => {
+    // First open: the list has no templates, and stays cached in the query client.
+    vi.mocked(api.getLabelTemplates).mockResolvedValue([]);
+    const props = {
+      onClose: vi.fn(),
+      availableSpools: SPOOLS,
+      initialSelectedIds: [1],
+      spoolmanMode: false,
+    };
+    const view = render(<LabelTemplatePickerModal isOpen {...props} />);
+    await waitFor(() => expect(api.getLabelTemplates).toHaveBeenCalledTimes(1));
+    view.rerender(<LabelTemplatePickerModal isOpen={false} {...props} />);
+
+    // Meanwhile the template was saved elsewhere and chosen in this browser.
     const store = new Map([['bambuddy-label-print-options', JSON.stringify({ template: 'saved:5' })]]);
     vi.mocked(localStorage.getItem).mockImplementation((key) => store.get(key) ?? null);
+    vi.mocked(localStorage.setItem).mockImplementation((key, value) => void store.set(key, String(value)));
     let finish: (value: (typeof SAVED)[]) => void = () => {};
     vi.mocked(api.getLabelTemplates).mockReturnValue(new Promise((resolve) => (finish = resolve)));
-    openModal();
 
-    await waitFor(() => expect(api.getLabelTemplates).toHaveBeenCalled());
+    // Reopen: the cached list lacks it, the refetch is still on its way.
+    view.rerender(<LabelTemplatePickerModal isOpen {...props} />);
+    await waitFor(() => expect(api.getLabelTemplates).toHaveBeenCalledTimes(2));
     expect(store.get('bambuddy-label-print-options')).toContain('saved:5');
+
     await act(async () => finish([SAVED]));
     await waitFor(() => expect(screen.getByTestId('label-template-select')).toHaveValue('saved:5'));
+    expect(store.get('bambuddy-label-print-options')).toContain('saved:5');
   });
 
   describe('for a user who may print but not edit inventory', () => {

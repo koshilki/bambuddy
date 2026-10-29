@@ -2774,7 +2774,6 @@ export default {
       updateFailed: 'Failed to update entry',
       entryDeleted: 'Entry deleted',
       deleteFailed: 'Failed to delete entry',
-      nameTaken: 'A label template with this name already exists.',
       resetSuccess: 'Catalog reset to defaults',
       resetFailed: 'Failed to reset catalog',
       exported: 'Exported {{count}} entries',
@@ -5200,6 +5199,7 @@ export default {
         deleted: 'Template "{{name}}" deleted',
         saveFailed: 'Could not save the template: {{msg}}',
         deleteFailed: 'Could not delete the template: {{msg}}',
+        nameTaken: 'A label template with this name already exists.',
         problems: {
           incomplete: 'Fill in every field with a number.',
           tooSmall: 'Labels must be at least {{minWidth}} mm wide and {{minHeight}} mm tall, or the text doesn’t fit.',

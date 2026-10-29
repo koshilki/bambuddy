@@ -2707,7 +2707,6 @@ export default {
       updateFailed: 'Impossibile aggiornare la voce',
       entryDeleted: 'Voce eliminata',
       deleteFailed: 'Impossibile eliminare la voce',
-      nameTaken: 'Esiste già un modello di etichette con questo nome.',
       resetSuccess: 'Catalogo ripristinato ai valori predefiniti',
       resetFailed: 'Impossibile ripristinare il catalogo',
       exported: '{{count}} voci esportate',
@@ -5149,6 +5148,7 @@ export default {
         deleted: 'Modello «{{name}}» eliminato',
         saveFailed: 'Impossibile salvare il modello: {{msg}}',
         deleteFailed: 'Impossibile eliminare il modello: {{msg}}',
+        nameTaken: 'Esiste già un modello di etichette con questo nome.',
         problems: {
           incomplete: 'Compila ogni campo con un numero.',
           tooSmall: 'Le etichette devono essere larghe almeno {{minWidth}} mm e alte almeno {{minHeight}} mm, altrimenti il testo non ci sta.',

@@ -2771,7 +2771,6 @@ export default {
       updateFailed: 'Kunde inte uppdatera post',
       entryDeleted: 'Post borttagen',
       deleteFailed: 'Kunde inte ta bort post',
-      nameTaken: 'Det finns redan en etikettmall med det här namnet.',
       resetSuccess: 'Katalog återställd till standard',
       resetFailed: 'Kunde inte återställa katalog',
       exported: 'Exporterade {{count}} poster',
@@ -5197,6 +5196,7 @@ errors: {
         deleted: 'Mallen "{{name}}" togs bort',
         saveFailed: 'Kunde inte spara mallen: {{msg}}',
         deleteFailed: 'Kunde inte ta bort mallen: {{msg}}',
+        nameTaken: 'Det finns redan en etikettmall med det här namnet.',
         problems: {
           incomplete: 'Fyll i varje fält med ett tal.',
           tooSmall: 'Etiketter måste vara minst {{minWidth}} mm breda och {{minHeight}} mm höga, annars får texten inte plats.',

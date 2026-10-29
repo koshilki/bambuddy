@@ -2619,7 +2619,6 @@ export default {
       updateFailed: '항목 업데이트 실패',
       entryDeleted: '항목이 삭제되었습니다',
       deleteFailed: '항목 삭제 실패',
-      nameTaken: '같은 이름의 라벨 템플릿이 이미 있습니다.',
       resetSuccess: '카탈로그가 기본값으로 초기화되었습니다',
       resetFailed: '카탈로그 초기화 실패',
       exported: '{{count}}개 항목이 내보내졌습니다',
@@ -4916,6 +4915,7 @@ export default {
         deleted: '"{{name}}" 템플릿을 삭제했습니다',
         saveFailed: '템플릿을 저장하지 못했습니다: {{msg}}',
         deleteFailed: '템플릿을 삭제하지 못했습니다: {{msg}}',
+        nameTaken: '같은 이름의 라벨 템플릿이 이미 있습니다.',
         problems: {
           incomplete: '모든 칸에 숫자를 입력하세요.',
           tooSmall: '라벨은 너비 {{minWidth}} mm, 높이 {{minHeight}} mm 이상이어야 텍스트가 들어갑니다.',

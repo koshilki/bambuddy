@@ -2707,7 +2707,6 @@ export default {
       updateFailed: 'Échec mise à jour',
       entryDeleted: 'Entrée supprimée',
       deleteFailed: 'Échec suppression',
-      nameTaken: 'Un modèle d’étiquettes porte déjà ce nom.',
       resetSuccess: 'Catalogue réinitialisé',
       resetFailed: 'Échec réinitialisation',
       exported: '{{count}} entrées exportées',
@@ -5150,6 +5149,7 @@ export default {
         deleted: 'Modèle « {{name}} » supprimé',
         saveFailed: 'Impossible d’enregistrer le modèle : {{msg}}',
         deleteFailed: 'Impossible de supprimer le modèle : {{msg}}',
+        nameTaken: 'Un modèle d’étiquettes porte déjà ce nom.',
         problems: {
           incomplete: 'Remplissez chaque champ avec un nombre.',
           tooSmall: 'Les étiquettes doivent mesurer au moins {{minWidth}} mm de large et {{minHeight}} mm de haut, sinon le texte ne tient pas.',

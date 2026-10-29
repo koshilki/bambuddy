@@ -2752,7 +2752,6 @@ export default {
       updateFailed: 'Eintrag konnte nicht aktualisiert werden',
       entryDeleted: 'Eintrag gelöscht',
       deleteFailed: 'Eintrag konnte nicht gelöscht werden',
-      nameTaken: 'Eine Etikettenvorlage mit diesem Namen gibt es bereits.',
       resetSuccess: 'Katalog auf Standardwerte zurückgesetzt',
       resetFailed: 'Katalog konnte nicht zurückgesetzt werden',
       exported: '{{count}} Einträge exportiert',
@@ -5162,6 +5161,7 @@ export default {
         deleted: 'Vorlage „{{name}}“ gelöscht',
         saveFailed: 'Vorlage konnte nicht gespeichert werden: {{msg}}',
         deleteFailed: 'Vorlage konnte nicht gelöscht werden: {{msg}}',
+        nameTaken: 'Eine Etikettenvorlage mit diesem Namen gibt es bereits.',
         problems: {
           incomplete: 'Fülle jedes Feld mit einer Zahl aus.',
           tooSmall: 'Etiketten müssen mindestens {{minWidth}} mm breit und {{minHeight}} mm hoch sein, sonst passt der Text nicht.',

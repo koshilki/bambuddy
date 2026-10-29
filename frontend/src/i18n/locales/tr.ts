@@ -2755,7 +2755,6 @@ export default {
       updateFailed: 'Giriş güncellenemedi',
       entryDeleted: 'Giriş silindi',
       deleteFailed: 'Giriş silinemedi',
-      nameTaken: 'Bu adla bir etiket şablonu zaten var.',
       resetSuccess: 'Katalog varsayılana sıfırlandı',
       resetFailed: 'Katalog sıfırlanamadı',
       exported: '{{count}} giriş dışa aktarıldı',
@@ -5151,6 +5150,7 @@ export default {
         deleted: '"{{name}}" şablonu silindi',
         saveFailed: 'Şablon kaydedilemedi: {{msg}}',
         deleteFailed: 'Şablon silinemedi: {{msg}}',
+        nameTaken: 'Bu adla bir etiket şablonu zaten var.',
         problems: {
           incomplete: 'Her alana bir sayı girin.',
           tooSmall: 'Metnin sığması için etiketler en az {{minWidth}} mm genişliğinde ve {{minHeight}} mm yüksekliğinde olmalıdır.',

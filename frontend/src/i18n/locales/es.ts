@@ -2754,7 +2754,6 @@ export default {
       updateFailed: 'Error al actualizar la entrada',
       entryDeleted: 'Entrada eliminada',
       deleteFailed: 'Error al eliminar la entrada',
-      nameTaken: 'Ya existe una plantilla de etiquetas con este nombre.',
       resetSuccess: 'Catálogo restablecido a los valores predeterminados',
       resetFailed: 'Error al restablecer el catálogo',
       exported: 'Se exportaron {{count}} entradas',
@@ -5164,6 +5163,7 @@ export default {
         deleted: 'Plantilla «{{name}}» eliminada',
         saveFailed: 'No se pudo guardar la plantilla: {{msg}}',
         deleteFailed: 'No se pudo eliminar la plantilla: {{msg}}',
+        nameTaken: 'Ya existe una plantilla de etiquetas con este nombre.',
         problems: {
           incomplete: 'Rellena cada campo con un número.',
           tooSmall: 'Las etiquetas deben medir al menos {{minWidth}} mm de ancho y {{minHeight}} mm de alto, o el texto no cabe.',

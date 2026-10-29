@@ -2752,7 +2752,6 @@ export default {
       updateFailed: '更新條目失敗',
       entryDeleted: '條目已刪除',
       deleteFailed: '刪除條目失敗',
-      nameTaken: '已有同名的標籤範本。',
       resetSuccess: '目錄已重設為預設值',
       resetFailed: '重設目錄失敗',
       exported: '已匯出 {{count}} 條',
@@ -5149,6 +5148,7 @@ export default {
         deleted: '範本「{{name}}」已刪除',
         saveFailed: '無法儲存範本：{{msg}}',
         deleteFailed: '無法刪除範本：{{msg}}',
+        nameTaken: '已有同名的標籤範本。',
         problems: {
           incomplete: '請在每一欄填入數字。',
           tooSmall: '標籤寬度至少 {{minWidth}} 公釐、高度至少 {{minHeight}} 公釐，否則放不下文字。',
