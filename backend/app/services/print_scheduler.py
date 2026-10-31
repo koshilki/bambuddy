@@ -1378,6 +1378,12 @@ class PrintScheduler:
         # event-loop thread, so this dict needs no lock.
         # item_id -> (task, printer_id)
         self._inflight: dict[int, tuple[asyncio.Task, int | None]] = {}
+        # Archives a library dispatch still in flight is adding its run to:
+        # archive_id -> item_id. Uploads run in parallel, and an archive holds
+        # one active run, so a second dispatch of the same file must not take
+        # it before the first one's print shows as running. Released by
+        # `_dispatch_one` when the dispatch ends; same threading as above.
+        self._archive_claims: dict[int, int] = {}
         # Expected prints registered by `_start_print` that have not yet had a
         # print command sent. Populated at registration, dropped once
         # `start_print()` succeeds, and rolled back by `_dispatch_one` on every
@@ -2847,6 +2853,9 @@ class PrintScheduler:
                 # Likewise the print user it set: the printer's next print is
                 # not this item's.
                 self._rollback_unconfirmed_print_user(item_id)
+                # A sent print now shows as running on its archive; an unsent
+                # one leaves it free again.
+                self._release_archive_claims(item_id)
                 # Mirror the pre-#1625 background-dispatch lifecycle: a
                 # reservation survives only after start_print() accepted the
                 # command. Failure, cancellation, deferral, and exceptions all
@@ -5864,13 +5873,16 @@ class PrintScheduler:
             spools = await self._stock_spools_spoolman()
             if spools is None:
                 return None
-            # Spoolman owns the usage in this mode and Bambuddy's own history
-            # table holds nothing for those spools, so the rate is always the
-            # delta rate. Bambuddy's table is deliberately not consulted: its ids
-            # are local spool ids, and a Spoolman id that happens to match one
+            # The Spoolman spools' own rows (#3407), keyed by Spoolman id. Never
+            # the built-in ones: a Spoolman id that matches a local spool id
             # (left over from before Spoolman was switched on) would borrow an
-            # unrelated spool's history.
-            history: dict[int, list[stock_forecast.UsageRecord]] = {}
+            # unrelated spool's history (#3406).
+            history = await self._stock_usage_history(db, spoolman=True)
+            history = {
+                spool.id: stock_forecast.own_records(spool, history[spool.id])
+                for spool in spools
+                if spool.id in history
+            }
         else:
             spools = await self._stock_spools_internal(db)
             history = await self._stock_usage_history(db)
@@ -5880,14 +5892,10 @@ class PrintScheduler:
     async def _stock_spools_internal(self, db: AsyncSession) -> list[stock_forecast.StockSpool]:
         from backend.app.models.spool import Spool
 
-        # Stock, and the spools archived recently enough to count towards the
-        # rate (stock_forecast.archived_counts decides; this only trims the read).
-        cutoff = utcnow_naive() - timedelta(days=stock_forecast.ARCHIVED_RATE_WINDOW_DAYS + 1)
-        rows = (
-            (await db.execute(select(Spool).where(or_(Spool.archived_at.is_(None), Spool.archived_at >= cutoff))))
-            .scalars()
-            .all()
-        )
+        # Every spool: stock, the recently archived ones that count towards the
+        # rate, and the older ones that tell it the SKU was in use before its
+        # window (#3407). stock_forecast.forecast_all sorts them.
+        rows = (await db.execute(select(Spool))).scalars().all()
         return [
             stock_forecast.StockSpool(
                 id=spool.id,
@@ -5900,16 +5908,27 @@ class PrintScheduler:
                 weight_used_baseline=float(spool.weight_used_baseline or 0),
                 created_at=spool.created_at,
                 archived_at=spool.archived_at,
+                last_used_at=spool.last_used,
             )
             for spool in rows
         ]
 
-    async def _stock_usage_history(self, db: AsyncSession) -> dict[int, list[stock_forecast.UsageRecord]]:
+    async def _stock_usage_history(
+        self, db: AsyncSession, *, spoolman: bool = False
+    ) -> dict[int, list[stock_forecast.UsageRecord]]:
+        """Usage rows by spool id, for one inventory: its own ids, as the forecast
+        panel reads them from the usage endpoint."""
         from backend.app.models.spool_usage_history import SpoolUsageHistory
 
+        spool_id = SpoolUsageHistory.spoolman_spool_id if spoolman else SpoolUsageHistory.spool_id
         rows = (
             await db.execute(
-                select(SpoolUsageHistory.spool_id, SpoolUsageHistory.created_at, SpoolUsageHistory.weight_used)
+                select(spool_id, SpoolUsageHistory.created_at, SpoolUsageHistory.weight_used)
+                .where(
+                    SpoolUsageHistory.spoolman_spool_id.is_not(None)
+                    if spoolman
+                    else SpoolUsageHistory.spoolman_spool_id.is_(None)
+                )
                 .order_by(SpoolUsageHistory.created_at.desc())
                 .limit(_STOCK_FORECAST_HISTORY_LIMIT)
             )
@@ -5968,6 +5987,8 @@ class PrintScheduler:
                     weight_used_baseline=float(mapped.get("weight_used_baseline") or 0),
                     created_at=created_at,
                     archived_at=archived_at,
+                    first_used_at=_spoolman_time(mapped.get("first_used")),
+                    last_used_at=_spoolman_time(mapped.get("last_used")),
                     color_name_is_synthesized=bool(mapped.get("color_name_is_synthesized")),
                 )
             )
@@ -8042,6 +8063,84 @@ class PrintScheduler:
 
         return prev_item.status in ("completed", "cancelled")
 
+    def _release_archive_claims(self, item_id: int) -> None:
+        for archive_id in [a for a, owner in self._archive_claims.items() if owner == item_id]:
+            del self._archive_claims[archive_id]
+
+    async def _claim_reusable_archive(
+        self, db: AsyncSession, item: PrintQueueItem, file_path: Path
+    ) -> PrintArchive | None:
+        """The archive a library dispatch adds its run to, claimed for it, or
+        None for a new one.
+
+        The same file of the same owner, in the same project, archived from
+        this library file or from none (one since deleted, or a print started
+        elsewhere), with its copy of the file still on disk. Only an idle
+        archive: it holds one active run, so while one of its prints is
+        queued, being sent, running, or still finishing (its timelapse),
+        another print of the file gets an archive of its own, as before.
+        """
+        from backend.app.main import _active_prints, _archive_runs_finishing
+        from backend.app.services.archive import ArchiveService
+
+        # Off the file as it is now: the stored hash is not refreshed when the
+        # file changes on disk (an external folder, overwritten in place).
+        content_hash = await asyncio.to_thread(ArchiveService.compute_file_hash, file_path)
+        owner = (
+            PrintArchive.created_by_id.is_(None)
+            if item.created_by_id is None
+            else PrintArchive.created_by_id == item.created_by_id
+        )
+        project = (
+            PrintArchive.project_id.is_(None) if item.project_id is None else PrintArchive.project_id == item.project_id
+        )
+        candidates = (
+            await db.scalars(
+                select(PrintArchive)
+                .where(
+                    PrintArchive.content_hash == content_hash,
+                    owner,
+                    project,
+                    or_(PrintArchive.library_file_id == item.library_file_id, PrintArchive.library_file_id.is_(None)),
+                    PrintArchive.deleted_at.is_(None),
+                    PrintArchive.status != "printing",
+                )
+                .order_by(PrintArchive.id.desc())
+            )
+        ).all()
+        if not candidates:
+            return None
+        # A dispatch sets the item's archive while the item is still pending
+        # and keeps it through printing, so this also covers a print being
+        # sent or waiting to start. (The expected-print table can't say that:
+        # a print start leaves one of its names there for two hours.)
+        queued = set(
+            (
+                await db.scalars(
+                    select(PrintQueueItem.archive_id).where(
+                        PrintQueueItem.archive_id.in_([c.id for c in candidates]),
+                        PrintQueueItem.status.in_(("pending", "printing")),
+                        PrintQueueItem.id != item.id,
+                    )
+                )
+            ).all()
+        )
+        for candidate in candidates:
+            if not candidate.file_path or not (settings.base_dir / candidate.file_path).is_file():
+                continue
+            # No await from here to the claim: two parallel dispatches of the
+            # file cannot both take it.
+            if (
+                candidate.id in queued
+                or candidate.id in self._archive_claims
+                or candidate.id in _active_prints.values()
+                or candidate.id in _archive_runs_finishing
+            ):
+                continue
+            self._archive_claims[candidate.id] = item.id
+            return candidate
+        return None
+
     async def _repoint_siblings_at_archive(
         self,
         db: AsyncSession,
@@ -8931,10 +9030,9 @@ class PrintScheduler:
 
             # Persist the queue item's selected plate onto the archive so Print
             # History can show the actual plate after cancel/fail/complete (#2603).
-            # Only when the archive doesn't already carry one, so a reprint of a
-            # plate-specific archive isn't relabelled by a differently-plated
-            # queue row.
-            if archive.plate_id is None and item.plate_id is not None:
+            # The archive shows its latest run's plate; each run keeps its own
+            # on its print log entry.
+            if item.plate_id is not None:
                 archive.plate_id = item.plate_id
 
             # Ask-for-outcome opt-in rides from the queue item to the archive
@@ -8989,20 +9087,35 @@ class PrintScheduler:
             # cleared field -- so every consumed print logged "from library
             # file None", which is the one case worth being able to trace.
             source_library_file_id = item.library_file_id
+            reused_archive = False
             try:
                 from backend.app.services.archive import ArchiveService
 
-                archive_service = ArchiveService(db)
-                archive = await archive_service.archive_print(
-                    printer_id=item.printer_id,
-                    source_file=file_path,
-                    original_filename=filename,
-                    created_by_id=item.created_by_id,
-                    project_id=item.project_id,
-                    cost_center_id=item.cost_center_id,
-                    library_file_id=item.library_file_id,  # per-file project progress (#1897)
-                    plate_id=item.plate_id,  # selected plate → Print History (#2603)
-                )
+                # The file printed before: this run joins its archive rather
+                # than archiving the same file a second time.
+                archive = await self._claim_reusable_archive(db, item, file_path)
+                if archive is not None:
+                    reused_archive = True
+                    if archive.library_file_id is None:
+                        archive.library_file_id = item.library_file_id
+                    # This run's, as a new archive would have them: the
+                    # archive shows its latest run's plate, and billing falls
+                    # back to the archive's cost centre.
+                    if item.plate_id is not None:
+                        archive.plate_id = item.plate_id
+                    archive.cost_center_id = item.cost_center_id
+                else:
+                    archive_service = ArchiveService(db)
+                    archive = await archive_service.archive_print(
+                        printer_id=item.printer_id,
+                        source_file=file_path,
+                        original_filename=filename,
+                        created_by_id=item.created_by_id,
+                        project_id=item.project_id,
+                        cost_center_id=item.cost_center_id,
+                        library_file_id=item.library_file_id,  # per-file project progress (#1897)
+                        plate_id=item.plate_id,  # selected plate → Print History (#2603)
+                    )
                 if archive:
                     item.archive_id = archive.id
                     if item.confirm_outcome:
@@ -9044,8 +9157,9 @@ class PrintScheduler:
                     # for sensor history + concurrent cancels (#1853).
                     await db.commit()
                     logger.info(
-                        "Queue item %s: Created archive %s from library file %s",
+                        "Queue item %s: %s archive %s from library file %s",
                         item.id,
+                        "Reused" if reused_archive else "Created",
                         archive.id,
                         source_library_file_id,
                     )
